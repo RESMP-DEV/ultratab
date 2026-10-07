@@ -30,9 +30,10 @@ light up when pressed:
 | Tab | Accept: send the proposed reply to that agent, as typed and submitted with Return |
 | Hold Option | Speak: shows that it is listening. Voice input is not built yet; type instead |
 | Typing, then Return | Type: start typing anywhere in the overlay; Return sends it to that agent |
-| Left arrow | Skip: the card goes without sending anything and stays in this session's history |
+| Left arrow or Delete | Skip: the card goes without sending anything and stays in this session's history |
 
-While you are typing, the left arrow moves the cursor and Escape clears the text.
+While you are typing, the left arrow moves the cursor, Delete erases and Escape
+clears the text.
 Escape with nothing typed puts the overlay away, as does clicking another app.
 Command-[ and Command-] move through the categories on the rail. Command-O opens
 the card's first link and Command-click opens any link, with the system's

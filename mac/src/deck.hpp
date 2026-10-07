@@ -113,7 +113,7 @@ class Deck final : public QObject {
     // Enter: send typed text to the front card's agent. False when nothing
     // was sent (no card, a request, or empty text).
     Q_INVOKABLE bool send(const QString& text);
-    // Left arrow: drop the front card without sending anything.
+    // Left arrow or Delete: drop the front card without sending anything.
     Q_INVOKABLE bool skip();
     // Holding the speak key. Voice input is not built yet; this only shows
     // that the deck is listening.

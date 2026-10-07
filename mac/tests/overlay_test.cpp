@@ -355,6 +355,11 @@ void overlayAnswersEveryCard() {
     require(entry->property("text").toString() == QLatin1String("he is on the other server"),
             "typed text collects in the card");
     capture(view, QStringLiteral("overlay-typing.png"));
+    key(view, Qt::Key_Backspace); // erases while text is typed; never skips
+    require(entry->property("text").toString() == QLatin1String("he is on the other serve") &&
+                name->property("text").toString() == QLatin1String("game server"),
+            "Delete erases typed text rather than skipping");
+    key(view, Qt::Key_R, QStringLiteral("r"));
     key(view, Qt::Key_Left); // moves the cursor while text is typed; never skips
     require(sender.sent.size() == 1 &&
                 name->property("text").toString() == QLatin1String("game server"),
@@ -397,7 +402,7 @@ void overlayAnswersEveryCard() {
                 !find(root, QStringLiteral("since"))->isVisible(),
             "a stale composed card falls back to the plain card");
     capture(view, QStringLiteral("overlay-fallback.png"));
-    key(view, Qt::Key_Left);
+    key(view, Qt::Key_Backspace); // Delete with nothing typed skips too
     require(waitFor([&] { return find(root, QStringLiteral("empty"))->isVisible(); }),
             "an empty deck says nothing needs you");
     capture(view, QStringLiteral("overlay-empty.png"));

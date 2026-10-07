@@ -3,7 +3,7 @@ import QtQuick
 // Ultra Tab's overlay: a deck of agents that need you, one card in front and
 // at most one peeking behind. Every card takes the same four answers: Tab
 // accepts the proposed reply, holding Option speaks (a placeholder for now),
-// typing anywhere then Return sends what you typed, and the left arrow skips.
+// typing anywhere then Return sends what you typed, and the left arrow or Delete skips.
 // A composed card adds a headline and up to three blocks (text, list, table,
 // diagram, link). Input is never deferred for motion: the deck changes at
 // once and the short slide only follows it.
@@ -925,7 +925,8 @@ Item {
                 deck.accept()
             }
             event.accepted = true
-        } else if (event.key === Qt.Key_Left && empty && event.modifiers === Qt.NoModifier) {
+        } else if ((event.key === Qt.Key_Left || event.key === Qt.Key_Backspace)
+                   && empty && event.modifiers === Qt.NoModifier) {
             light("left")
             leaving(-1)
             deck.skip()
