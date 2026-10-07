@@ -12,6 +12,15 @@ bool apply_modifier(const QString& word, Hotkey& hotkey) {
     else if (word == QLatin1String("option") || word == QLatin1String("opt") ||
              word == QLatin1String("alt"))
         hotkey.option = true;
+    else if (word == QLatin1String("leftoption") || word == QLatin1String("leftopt") ||
+             word == QLatin1String("leftalt")) {
+        hotkey.option = true;
+        hotkey.optionSide = Side::left;
+    } else if (word == QLatin1String("rightoption") || word == QLatin1String("rightopt") ||
+               word == QLatin1String("rightalt")) {
+        hotkey.option = true;
+        hotkey.optionSide = Side::right;
+    }
     else if (word == QLatin1String("control") || word == QLatin1String("ctrl"))
         hotkey.control = true;
     else if (word == QLatin1String("shift"))
@@ -60,7 +69,9 @@ QString describe(const Hotkey& hotkey) {
     if (hotkey.control)
         parts << QStringLiteral("Control");
     if (hotkey.option)
-        parts << QStringLiteral("Option");
+        parts << (hotkey.optionSide == Side::left    ? QStringLiteral("LeftOption")
+                  : hotkey.optionSide == Side::right ? QStringLiteral("RightOption")
+                                                     : QStringLiteral("Option"));
     if (hotkey.shift)
         parts << QStringLiteral("Shift");
     if (hotkey.command)

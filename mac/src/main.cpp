@@ -12,6 +12,7 @@
 #include <QCommandLineParser>
 #include <QCursor>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
@@ -65,7 +66,10 @@ class Overlay final {
         QObject::connect(&deck_, &Deck::dismissRequested, &view_, [this] { hide(true); });
         // Clicking elsewhere puts the overlay away, as Spotlight does.
         QObject::connect(&view_, &QWindow::activeChanged, &view_, [this] {
-            if (!view_.isActive() && view_.isVisible())
+            // Activation lands a moment after show(); losing it in that
+            // window is the launch race, not the person clicking away.
+            if (!view_.isActive() && view_.isVisible() && shown_.isValid() &&
+                shown_.elapsed() > 600)
                 hide(false);
         });
     }
@@ -86,6 +90,7 @@ class Overlay final {
         const int height = std::min(900, area.height() * 84 / 100);
         view_.setGeometry(area.x() + (area.width() - width) / 2,
                           area.y() + (area.height() - height) / 2, width, height);
+        shown_.start();
         view_.show();
         if (!translucent_)
             translucent_ = platform::make_translucent(view_);
@@ -107,6 +112,7 @@ class Overlay final {
     Deck& deck_;
     PublishedSource& source_;
     bool translucent_{};
+    QElapsedTimer shown_;
 };
 } // namespace
 
@@ -126,7 +132,7 @@ int main(int argc, char** argv) {
         QStringLiteral("lapis's data folder (default: LAPIS_HOME or ~/.lapis)"),
         QStringLiteral("folder"));
     const QCommandLineOption hotkey_option(
-        QStringLiteral("hotkey"), QStringLiteral("Show or hide key (default: Option-Space)"),
+        QStringLiteral("hotkey"), QStringLiteral("Show or hide key (default: LeftOption-Space)"),
         QStringLiteral("keys"));
     const QCommandLineOption show_option(QStringLiteral("show"),
                                          QStringLiteral("Show the overlay at launch"));

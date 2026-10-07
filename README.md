@@ -57,14 +57,15 @@ open build/desktop/apps/ultratab/lapis_ultratab.app
 The lapis window must come from a build that publishes `agent_state.json`
 (below); restart it once after updating.
 
-Ultra Tab has no Dock icon. Option-Space shows or hides it. It never comes
+Ultra Tab has no Dock icon. The left Option key with Space shows or hides it;
+the right Option key with Space is left alone. It never comes
 forward or takes the keyboard on its own: a new card arriving while you work in
 another app changes nothing until you press the key.
 
 Options:
 
 - `--hotkey Command-Shift-U` uses another key (modifiers Command, Option,
-  Control, Shift, then Space, a letter, a digit, F1 to F12, Return, Tab or
+  LeftOption, RightOption, Control, Shift, then Space, a letter, a digit, F1 to F12, Return, Tab or
   Escape; one of Command, Option or Control is required). A `hotkey` in
   `~/.lapis/ultratab.json` does the same: `{"hotkey": "Control-Option-Space"}`.
 - `--home FOLDER` reads another lapis data folder (default: `LAPIS_HOME`, else

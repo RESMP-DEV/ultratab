@@ -13,9 +13,25 @@ std::function<void()>& hotkey_handler() {
     static std::function<void()> handler;
     return handler;
 }
+// Carbon cannot tell the two Option keys apart; the HID state's
+// device-dependent bits can, without any input-monitoring permission.
+Side& hotkey_side() {
+    static Side side = Side::any;
+    return side;
+}
+constexpr CGEventFlags kLeftOption = 0x20;  // NX_DEVICELALTKEYMASK
+constexpr CGEventFlags kRightOption = 0x40; // NX_DEVICERALTKEYMASK
+
+bool side_matches() {
+    const auto side = hotkey_side();
+    if (side == Side::any)
+        return true;
+    const auto flags = CGEventSourceFlagsState(kCGEventSourceStateHIDSystemState);
+    return (flags & (side == Side::left ? kLeftOption : kRightOption)) != 0;
+}
 
 OSStatus hotkey_pressed(EventHandlerCallRef, EventRef, void*) {
-    if (const auto& handler = hotkey_handler())
+    if (const auto& handler = hotkey_handler(); handler && side_matches())
         handler();
     return noErr;
 }
@@ -107,6 +123,7 @@ bool register_hotkey(const Hotkey& hotkey, const std::function<void()>& pressed)
     static EventHotKeyRef key = nullptr;
     static EventHandlerRef dispatch = nullptr;
     hotkey_handler() = pressed;
+    hotkey_side() = hotkey.option ? hotkey.optionSide : Side::any;
     if (key != nullptr) {
         UnregisterEventHotKey(key);
         key = nullptr;

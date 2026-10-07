@@ -303,12 +303,19 @@ void fourAnswers() {
 void hotkeys() {
     const auto standard = parse_hotkey(QStringLiteral("Option-Space"));
     require(standard && standard->option && !standard->command && standard->key == "Space",
-            "the default");
+            "either Option key");
     const auto other = parse_hotkey(QStringLiteral("cmd+shift+u"));
     require(other && other->command && other->shift && other->key == "U" &&
                 describe(*other) == QLatin1String("Shift-Command-U"),
             "aliases, either separator, any case");
     require(parse_hotkey(QStringLiteral("Control-F12")).has_value(), "function keys");
+    const auto left = parse_hotkey(QString::fromLatin1(default_hotkey));
+    require(left && left->option && left->optionSide == Side::left && left->key == "Space" &&
+                describe(*left) == QLatin1String("LeftOption-Space"),
+            "the default is the left Option key only");
+    const auto right = parse_hotkey(QStringLiteral("rightalt+space"));
+    require(right && right->optionSide == Side::right, "the right Option key");
+    require(standard->optionSide == Side::any, "plain Option is either key");
     for (const auto* refused : {"Space", "Shift-A", "Option-F13", "Option-", "Hyper-K", ""})
         require(!parse_hotkey(QString::fromLatin1(refused)), refused);
 }
