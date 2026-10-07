@@ -246,9 +246,55 @@ What is shown, and the limits applied on reading:
 - `link`: only `https:` with a host and local `file:///` paths; anything else
   is skipped.
 
+## On the iPhone
+
+Ultra Tab for iPhone (`apps/ios/UltraTab`) is a separate app with the same
+icon. It deals the same deck, in the same order, one card at a time: the
+agent's name, folder and category, the "since" line, the headline, up to three
+blocks (paragraph, list, table, diagram, link) and the proposed reply. It
+reaches the Mac through the [phone gateway](phone.md), so it needs the same
+Tailscale or ZeroTier setup as the lapis phone app and nothing else.
+
+Every card takes three answers:
+
+| Gesture | Answer |
+| --- | --- |
+| Swipe right (or Send) | Accept: send the proposed reply |
+| Swipe left (or Skip) | Skip: the next card comes forward; nothing is sent |
+| The voice button | Annotate: tap to start and again to stop, or hold while speaking; the words land in the field above it |
+
+The annotation field is ordinary text: edit what was heard or type with the
+keyboard, then press the arrow to send it. Nothing is sent until then.
+Dictation uses Apple's speech recognizer, on the iPhone when it supports that;
+the first use asks for speech recognition and microphone access. A tap on a
+web link opens it in the browser; a link to a file names it as being on the
+Mac. A card waiting on a request springs back from a right swipe: answer it in
+lapis. The chips on top choose a category, as Command-[ and Command-] do on the
+Mac.
+
+An answer joins the agent's session beside the lapis window, sends one paste
+and Return, and leaves, as the Mac overlay does; the window keeps its
+connection and the terminal keeps its size. A send the session refuses brings
+the card back with the reason. Answers and skips are kept on the phone until
+the app quits; the Mac overlay keeps its own.
+
+Install it on the phone (unlocked, on the same Wi-Fi as the Mac or on a cable)
+with:
+
+```sh
+uv run --no-project python scripts/install_ios_app.py --app ultratab
+```
+
+`uv run --no-project python scripts/check_ultratab_ios.py` runs its unit and UI
+tests in a headless simulator against real session services and the gateway
+(`--unit` for the unit tests alone); screenshots go to
+`build/ios-ultratab/screens/`.
+
 ## Not yet
 
-- Voice: holding Option shows the listening state only.
+- Voice on the Mac: holding Option shows the listening state only. The iPhone
+  app dictates with Apple's recognizer behind a small `Transcriber` protocol,
+  so another speech model can replace it.
 - History is kept only while Ultra Tab runs; nothing is searchable later.
 - The overlay does not show composed cards yet; they are written for it.
 - The learned Tab order and other ranking beyond lapis's tiers.
