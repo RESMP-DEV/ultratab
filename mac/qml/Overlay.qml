@@ -33,6 +33,20 @@ Item {
     // The key that was just pressed, lit on its keycap for a moment.
     property string flash: ""
     property bool optionHeld: false
+    // Option speaks only after it has been up once since the overlay took the
+    // keyboard: the Option of the summoning chord never lights or listens.
+    property bool optionArmed: true
+    Connections {
+        target: root.Window.window
+        ignoreUnknownSignals: true
+        function onActiveChanged() {
+            if (root.Window.window && root.Window.window.active) {
+                root.optionArmed = !deck.optionDown()
+                root.optionHeld = false
+                holdToSpeak.stop()
+            }
+        }
+    }
 
     // Captures only: what the real window's blur would show through.
     Rectangle {
@@ -745,6 +759,7 @@ Item {
                         Keys.onPressed: (event) => root.handleKey(event)
                         Keys.onReleased: (event) => {
                             if (event.key === Qt.Key_Alt && !event.isAutoRepeat) {
+                                root.optionArmed = true
                                 holdToSpeak.stop()
                                 root.optionHeld = false
                                 deck.setListening(false)
@@ -885,7 +900,7 @@ Item {
     function handleKey(event) {
         const empty = !typing
         if (event.key === Qt.Key_Alt) {
-            if (!event.isAutoRepeat) {
+            if (!event.isAutoRepeat && optionArmed) {
                 optionHeld = true
                 holdToSpeak.restart()
             }

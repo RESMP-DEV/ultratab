@@ -6,6 +6,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QMutexLocker>
 #include <QPointer>
 #include <QRegularExpression>
@@ -396,6 +397,10 @@ bool Deck::openLink(int index) {
             return true;
         }
     return false;
+}
+
+bool Deck::optionDown() {
+    return QGuiApplication::queryKeyboardModifiers().testFlag(Qt::AltModifier);
 }
 
 void Deck::setListening(bool on) {

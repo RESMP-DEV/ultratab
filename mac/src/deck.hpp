@@ -118,6 +118,9 @@ class Deck final : public QObject {
     // Holding the speak key. Voice input is not built yet; this only shows
     // that the deck is listening.
     Q_INVOKABLE void setListening(bool on);
+    // Whether an Option key is down right now (the summoning chord may still
+    // be held when the overlay takes the keyboard).
+    Q_INVOKABLE static bool optionDown();
     // Command-[ and Command-]: the previous or next category on the rail.
     Q_INVOKABLE void nextCategory(int delta);
     // Escape with nothing typed.
