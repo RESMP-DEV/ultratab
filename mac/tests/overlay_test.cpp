@@ -388,7 +388,7 @@ void overlayAnswersEveryCard() {
     capture(view, QStringLiteral("overlay-request.png"));
     key(view, Qt::Key_Return);
     require(sender.sent.size() == 2, "Return types nothing over a request");
-    key(view, Qt::Key_Left);
+    key(view, Qt::Key_Left, {}, Qt::KeypadModifier); // as macOS delivers the arrow
     require(sender.sent.size() == 2 &&
                 name->property("text").toString() == QLatin1String("fp8 gemm tune"),
             "Left skips without sending");

@@ -899,6 +899,8 @@ Item {
 
     function handleKey(event) {
         const empty = !typing
+        // macOS marks arrow keys with the keypad modifier; it is not a held key.
+        const bare = (event.modifiers & ~Qt.KeypadModifier) === Qt.NoModifier
         if (event.key === Qt.Key_Alt) {
             if (!event.isAutoRepeat && optionArmed) {
                 optionHeld = true
@@ -918,7 +920,7 @@ Item {
                 hint = "This card has no link to open."
             event.accepted = true
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-            if (empty && event.modifiers === Qt.NoModifier) {
+            if (empty && bare) {
                 light("tab")
                 if (front.canAccept)
                     leaving(1)
@@ -926,7 +928,7 @@ Item {
             }
             event.accepted = true
         } else if ((event.key === Qt.Key_Left || event.key === Qt.Key_Backspace)
-                   && empty && event.modifiers === Qt.NoModifier) {
+                   && empty && bare) {
             light("left")
             leaving(-1)
             deck.skip()
