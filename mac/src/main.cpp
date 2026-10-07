@@ -9,6 +9,7 @@
 #include "platform_overlay.hpp"
 #include "published.hpp"
 #include "session_sender.hpp"
+#include "settings.hpp"
 
 #include <QCommandLineParser>
 #include <QCursor>
@@ -22,8 +23,10 @@
 #include <QScreen>
 #include <QSurfaceFormat>
 #include <QTextStream>
+#include <QTimer>
 #include <algorithm>
 #include <optional>
+#include <utility>
 
 namespace {
 using namespace lapis::ultratab;
@@ -43,16 +46,16 @@ int print_deck(const QString& home) {
     QTextStream out(stdout);
     const auto cards = waiting_cards(published);
     for (const auto& card : cards)
-        out << card.name << " [" << card.category_name << "] " << card.line
+        out << card.name << " [" << card.category_name << "] "
+            << (card.composed && !card.composed->tldr.isEmpty() ? card.composed->tldr : card.line)
             << (card.proposal.isEmpty() ? QString() : QStringLiteral(" -> ") + card.proposal)
             << '\n';
     if (cards.empty())
         out << "Nothing needs you.\n";
     if (!published.has_state || !published.problem.isEmpty())
         out << "("
-            << (published.problem.isEmpty()
-                    ? QStringLiteral("no agent state published by this lapis")
-                    : published.problem)
+            << (published.problem.isEmpty() ? QStringLiteral("no agent state published")
+                                            : published.problem)
             << ")\n";
     out << published.agents.size() << " agents in the registry\n";
     return 0;
@@ -60,8 +63,9 @@ int print_deck(const QString& home) {
 
 class Overlay final {
   public:
-    Overlay(QQuickView& view, Deck& deck, PublishedSource& source)
-        : view_(view), deck_(deck), source_(source) {
+    Overlay(QQuickView& view, Deck& deck, PublishedSource& source, const QString& home)
+        : view_(view), deck_(deck), source_(source), home_(home),
+          positions_(read_positions(home_)) {
         QObject::connect(&deck_, &Deck::dismissRequested, &view_, [this] { hide(true); });
         // Clicking elsewhere puts the overlay away, as Spotlight does.
         QObject::connect(&view_, &QWindow::activeChanged, &view_, [this] {
@@ -71,6 +75,12 @@ class Overlay final {
                 shown_.elapsed() > 600)
                 hide(false);
         });
+        // Dragged by its background: remember where, per screen, once it rests.
+        remember_.setSingleShot(true);
+        remember_.setInterval(400);
+        QObject::connect(&remember_, &QTimer::timeout, &view_, [this] { remember(); });
+        QObject::connect(&view_, &QWindow::xChanged, &view_, [this] { moved(); });
+        QObject::connect(&view_, &QWindow::yChanged, &view_, [this] { moved(); });
     }
     // Only the person's hotkey (or --show) calls this; nothing that arrives
     // brings the overlay forward or takes the keyboard on its own.
@@ -85,10 +95,15 @@ class Overlay final {
         if (screen == nullptr)
             screen = QGuiApplication::primaryScreen();
         const auto area = screen->availableGeometry();
-        const int width = std::min(1500, area.width() * 82 / 100);
-        const int height = std::min(900, area.height() * 84 / 100);
-        view_.setGeometry(area.x() + (area.width() - width) / 2,
-                          area.y() + (area.height() - height) / 2, width, height);
+        // The window keeps one size per screen; only where it sits changes.
+        const QSize size(std::min(1500, area.width() * 82 / 100),
+                         std::min(900, area.height() * 84 / 100));
+        const auto key = screen_key(screen->name(), screen->geometry());
+        const auto saved = positions_.constFind(key);
+        placing_ = true;
+        view_.setGeometry(place_window(
+            area, size, saved == positions_.cend() ? std::nullopt : std::optional<QPoint>(*saved)));
+        placing_ = false;
         shown_.start();
         view_.show();
         if (!translucent_)
@@ -99,6 +114,10 @@ class Overlay final {
         source_.setPolling(true);
     }
     void hide(bool give_back) {
+        if (remember_.isActive()) {
+            remember_.stop();
+            remember();
+        }
         view_.hide();
         source_.setPolling(false);
         deck_.setListening(false);
@@ -107,9 +126,24 @@ class Overlay final {
     }
 
   private:
+    void moved() {
+        if (!placing_ && view_.isVisible())
+            remember_.start();
+    }
+    void remember() {
+        auto* screen = view_.screen();
+        if (screen == nullptr)
+            return;
+        positions_.insert(screen_key(screen->name(), screen->geometry()), view_.position());
+        write_positions(home_, positions_);
+    }
     QQuickView& view_;
     Deck& deck_;
     PublishedSource& source_;
+    QString home_;
+    Positions positions_;
+    QTimer remember_;
+    bool placing_{};
     bool translucent_{};
     QElapsedTimer shown_;
 };
@@ -124,11 +158,11 @@ int main(int argc, char** argv) {
     QGuiApplication::setQuitOnLastWindowClosed(false);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Ultra Tab: answer lapis agents from a deck"));
+    parser.setApplicationDescription(QStringLiteral("Ultra Tab: answer your agents from a deck"));
     parser.addHelpOption();
     const QCommandLineOption home_option(
         QStringLiteral("home"),
-        QStringLiteral("lapis's data folder (default: LAPIS_HOME or ~/.lapis)"),
+        QStringLiteral("the agents' data folder (default: LAPIS_HOME or ~/.lapis)"),
         QStringLiteral("folder"));
     const QCommandLineOption hotkey_option(
         QStringLiteral("hotkey"), QStringLiteral("Show or hide key (default: LeftOption-Space)"),
@@ -143,8 +177,8 @@ int main(int argc, char** argv) {
     const auto home =
         parser.isSet(home_option) ? parser.value(home_option) : lapis::ultratab::lapis_home();
     const auto config = configuration(home);
-    auto key_text = parser.isSet(hotkey_option) ? parser.value(hotkey_option)
-                                                : config.value(QStringLiteral("hotkey")).toString();
+    const auto settings = read_settings(home);
+    auto key_text = parser.isSet(hotkey_option) ? parser.value(hotkey_option) : settings.hotkey;
     if (key_text.isEmpty())
         key_text = QString::fromLatin1(default_hotkey);
     const auto hotkey = parse_hotkey(key_text);
@@ -185,9 +219,10 @@ int main(int argc, char** argv) {
     QQuickView view;
     view.setFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     view.setTitle(QStringLiteral("Ultra Tab"));
-    if (!load_overlay(view, deck, {}))
+    if (!load_overlay(view, deck, {.backdrop = false, .reduced_motion = platform::reduce_motion()}))
         return 1;
-    Overlay overlay(view, deck, source);
+    Overlay overlay(view, deck, source, home);
+    qInfo().noquote() << "Ultra Tab:" << platform::set_start_at_login(settings.start_at_login);
     if (composer) {
         // The card in front keeps its content while the overlay shows it.
         const auto hold = [&view, &deck, &composer] {

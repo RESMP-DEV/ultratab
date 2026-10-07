@@ -2,13 +2,18 @@
 #define LAPIS_ULTRATAB_DECK_HPP
 #include "published.hpp"
 
+#include <QHash>
+#include <QMutex>
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <deque>
 #include <functional>
+#include <memory>
+#include <optional>
 #include <vector>
 
 namespace lapis::ultratab {
@@ -21,11 +26,26 @@ struct Card {
     QString category_id;
     QString category_name;
     QString line;     // what happened, one sentence
-    QString proposal; // lapis's guess at your reply; empty without one
+    QString proposal; // the proposed reply (composed, else lapis's guess); may be empty
     bool request{};   // a request (such as a permission prompt) is pending
     int tier{};       // lapis's Tab tier (attention_order.hpp)
     qint64 needed_at_ms{};
     int position{}; // registry order
+    // The composer's card for this turn, when it is current.
+    std::optional<ComposedCard> composed;
+};
+
+// Sanitized diagrams by content hash, read by the overlay's image provider
+// (possibly off the GUI thread).
+class DiagramStore {
+  public:
+    void replace(QHash<QString, QString> svgs);
+    [[nodiscard]] QString svg(const QString& key) const;
+    [[nodiscard]] static QString key_for(const QString& svg);
+
+  private:
+    mutable QMutex mutex_;
+    QHash<QString, QString> svgs_;
 };
 
 // Agents that need you, in the order lapis's Tab visits them: its tiers,
@@ -73,6 +93,9 @@ class Deck final : public QObject {
     void setPublished(const Published& published);
     // Whether the window that publishes the state still runs (a test seam).
     void setWriterCheck(std::function<bool(qint64)> running) { running_ = std::move(running); }
+    // How a link is opened (a test seam; default: the system's handler).
+    void setLinkOpener(std::function<void(const QUrl&)> opener) { opener_ = std::move(opener); }
+    [[nodiscard]] const std::shared_ptr<DiagramStore>& diagrams() const { return diagrams_; }
 
     [[nodiscard]] QVariantMap front() const;
     [[nodiscard]] QVariantMap behind() const;
@@ -99,6 +122,10 @@ class Deck final : public QObject {
     Q_INVOKABLE void nextCategory(int delta);
     // Escape with nothing typed.
     Q_INVOKABLE void dismiss() { emit dismissRequested(); }
+    // Command-click on a link chip (`index` among the front card's links), or
+    // Command-O for the first. Opens it with the system's handler; the card
+    // stays. False when there is no such link.
+    Q_INVOKABLE bool openLink(int index);
 
     static constexpr int history_limit = 200;
     static constexpr int running_limit = 12;
@@ -117,6 +144,7 @@ class Deck final : public QObject {
     };
     [[nodiscard]] const Agent* agent(const QString& id) const;
     [[nodiscard]] static QVariantMap describe(const Card& card);
+    [[nodiscard]] static QVariantList describe_blocks(const ComposedCard& composed);
     bool answer(const Card& card, const QString& how, const QString& text);
     void remember(Answer answer);
     Sender& sender_;
@@ -129,6 +157,8 @@ class Deck final : public QObject {
     QString message_;
     bool listening_{};
     std::function<bool(qint64)> running_;
+    std::function<void(const QUrl&)> opener_;
+    std::shared_ptr<DiagramStore> diagrams_{std::make_shared<DiagramStore>()};
 };
 } // namespace lapis::ultratab
 #endif
