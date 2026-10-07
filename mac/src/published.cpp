@@ -132,7 +132,7 @@ Published parse_published(const QString& runtime, const QByteArray& registry,
 Published read_published(const QString& runtime) {
     if (runtime.isEmpty()) {
         Published nothing;
-        nothing.problem = QStringLiteral("No lapis workspace found.");
+        nothing.problem = QStringLiteral("No agent workspace found.");
         return nothing;
     }
     const QDir folder(runtime);
@@ -141,9 +141,16 @@ Published read_published(const QString& runtime) {
                                        max_registry_bytes, problem);
     const auto state =
         read_bounded(folder.filePath(QStringLiteral("agent_state.json")), max_state_bytes, problem);
+    QString cards_problem;
+    const auto cards = read_bounded(folder.filePath(QStringLiteral("ultratab_cards.json")),
+                                    max_cards_bytes, cards_problem);
     auto published = parse_published(folder.absolutePath(), registry, state);
+    published.composed = parse_cards(cards);
     if (published.problem.isEmpty())
         published.problem = std::move(problem);
+    // A bad cards file only costs the rich cards; the plain ones still show.
+    if (published.composed.problem.isEmpty())
+        published.composed.problem = std::move(cards_problem);
     return published;
 }
 
@@ -157,7 +164,7 @@ PublishedSource::PublishedSource(QString runtime, QObject* parent)
     : QObject(parent), runtime_(std::move(runtime)), watcher_(new QFileSystemWatcher(this)) {
     qRegisterMetaType<Published>();
     pool_.setMaxThreadCount(1);
-    // Lapis replaces both files by renaming into the folder, which changes
+    // Lapis (and the card composer) replace these files by renaming into the folder, which changes
     // the folder; appends to its logs there do not.
     if (QFileInfo(runtime_).isDir())
         watcher_->addPath(runtime_);

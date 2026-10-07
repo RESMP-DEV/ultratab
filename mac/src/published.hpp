@@ -1,5 +1,7 @@
 #ifndef LAPIS_ULTRATAB_PUBLISHED_HPP
 #define LAPIS_ULTRATAB_PUBLISHED_HPP
+#include "cards.hpp"
+
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -15,7 +17,8 @@ class QFileSystemWatcher;
 // What lapis publishes about its agents, read without taking its workspace
 // lock and without writing anything of lapis's: the workspace registry
 // (runtime/workspace.json) and the window's agent state
-// (runtime/agent_state.json, AgentStatePublisher).
+// (runtime/agent_state.json, AgentStatePublisher), and the composed cards
+// written beside them (runtime/ultratab_cards.json, cards.hpp).
 namespace lapis::ultratab {
 struct Category {
     QString id;
@@ -56,7 +59,8 @@ struct Published {
     qint64 writer_pid{};
     bool has_registry{};
     bool has_state{};
-    QString problem; // why a file could not be read; empty when both were
+    ComposedCards composed; // runtime/ultratab_cards.json, when present
+    QString problem;        // why a file could not be read; empty when all were
 };
 
 // Limits on what is read: lapis itself refuses a larger registry.
@@ -67,7 +71,7 @@ constexpr int state_version = 1;
 // LAPIS_HOME when set, else ~/.lapis once it has a workspace (the downloaded
 // app), else empty: as the phone gateway decides.
 [[nodiscard]] QString lapis_home();
-// Reads both files in `runtime`. Records that fail validation (an endpoint
+// Reads the files in `runtime`. Records that fail validation (an endpoint
 // outside `runtime`, a relative program) are skipped; the rest is kept.
 [[nodiscard]] Published read_published(const QString& runtime);
 [[nodiscard]] Published parse_published(const QString& runtime, const QByteArray& registry,
@@ -75,7 +79,7 @@ constexpr int state_version = 1;
 // Whether the window that wrote the state still runs.
 [[nodiscard]] bool writer_running(qint64 pid);
 
-// Follows the two files: re-reads them off the GUI thread when the folder
+// Follows the three files: re-reads them off the GUI thread when the folder
 // changes (and every `poll_ms` while polling), and emits the newest result.
 class PublishedSource final : public QObject {
     Q_OBJECT

@@ -1,34 +1,42 @@
 # Ultra Tab
 
-Ultra Tab is a second app that runs beside lapis. Press its key from any app and
-a translucent overlay deals the agents that need you as a deck of cards: one in
-front, at most one peeking behind. Answer the front card and the next comes
-forward. lapis keeps running as it is; Ultra Tab only reads what lapis publishes
-and types to an agent the way the phone does.
+Ultra Tab is a small standalone app that runs beside lapis. It sits in the
+background with no Dock icon; press its key from any app and a translucent
+overlay deals the agents that need you as a deck of cards: one in front, at most
+one peeking behind. Answer the front card and the next comes forward. lapis
+keeps running as it is; Ultra Tab only reads what lapis publishes and types to
+an agent the way the phone does.
 
-This is milestone 1. It works from a build of this repository; it is not part of
-the downloaded app yet.
+It works from a build of this repository; it is not part of the downloaded app.
 
 ## A card
 
-Each card shows the agent's name, its folder and category, one sentence of what
-happened (the start of the agent's last reply), and lapis's guess at your next
-prompt ([suggestions](suggestions.md); with suggestions off, cards have no
-guess). The top rail lists categories with how many agents wait in each; a quiet
-column on the right names the agents at work, each with a pulsing dot.
+Each card shows the agent's name, its folder and category, a headline and the
+proposed reply. The top rail lists categories with how many agents wait in each;
+a quiet column on the right names the agents at work, each with a pulsing dot.
 
-Every card takes the same four answers:
+A plain card's headline is one sentence of what happened (the start of the
+agent's last reply) and its proposed reply is lapis's guess at your next prompt
+([suggestions](suggestions.md); with suggestions off, plain cards have no
+guess). A composed card (below) adds a dim "since" line above the headline, its
+own headline and up to three blocks: a paragraph, a short list, a table, a
+diagram or a link, and its own proposed reply.
+
+Every card takes the same four answers, shown as keys along the bottom that
+light up when pressed:
 
 | Key | Answer |
 | --- | --- |
-| Tab | Accept: send lapis's guess to that agent, as typed and submitted with Return |
+| Tab | Accept: send the proposed reply to that agent, as typed and submitted with Return |
 | Hold Option | Speak: shows that it is listening. Voice input is not built yet; type instead |
 | Typing, then Return | Type: start typing anywhere in the overlay; Return sends it to that agent |
 | Left arrow | Skip: the card goes without sending anything and stays in this session's history |
 
 While you are typing, the left arrow moves the cursor and Escape clears the text.
 Escape with nothing typed puts the overlay away, as does clicking another app.
-Command-[ and Command-] move through the categories on the rail.
+Command-[ and Command-] move through the categories on the rail. Command-O opens
+the card's first link and Command-click opens any link, with the system's
+default handler; the card stays. A plain click on a link opens nothing.
 
 A card whose agent waits on a request (a permission prompt, say) says so and
 takes no typed answer: answer it in lapis, which shows the choices. Skipping it
@@ -37,6 +45,11 @@ still works.
 A send that the agent's session refuses brings the card back with the reason.
 An answered or skipped card stays away until the agent has something new: its
 next finished turn, a new guess or a new request.
+
+The front card slides away (right when answered, left when skipped) while the
+next comes forward, in about 180 ms. Keys act at once: a second Tab during the
+slide already answers the next card. With Reduce Motion on in macOS
+accessibility settings, cards change without sliding and the dots do not pulse.
 
 ## Order
 
@@ -51,23 +64,47 @@ With the desktop build configured ([build](build.md)):
 
 ```sh
 cmake --build build/desktop --target lapis_ultratab
-open build/desktop/apps/ultratab/lapis_ultratab.app
+open "build/desktop/apps/ultratab/Ultra Tab.app"
 ```
+
+A signed copy, built like the downloadable lapis (its Qt from pinned source plus
+Qt SVG, the Developer ID identity, the hardened runtime), with the icon rendered
+from `apps/ultratab/icon/icon.svg`:
+
+```sh
+uv run --no-project python scripts/package_macos.py qt   # once
+uv run --no-project python scripts/package_ultratab.py app
+```
+
+It is left in `build/release/ultratab/stage/Ultra Tab.app`; move it to
+Applications yourself. It is not notarized yet.
 
 The lapis window must come from a build that publishes `agent_state.json`
 (below); restart it once after updating.
 
-Ultra Tab has no Dock icon. The left Option key with Space shows or hides it;
-the right Option key with Space is left alone. It never comes
-forward or takes the keyboard on its own: a new card arriving while you work in
-another app changes nothing until you press the key.
+The left Option key with Space shows or hides the overlay; the right Option key
+with Space is left alone. It never comes forward or takes the keyboard on its
+own: a new card arriving while you work in another app changes nothing until you
+press the key. Drag the overlay by its background to move it; it keeps that place
+on that screen across launches (in `ultratab-window.json` beside `ultratab.json`)
+and keeps its size.
+
+Settings, in `~/.lapis/ultratab.json` (or the `--home` folder):
+
+```json
+{"hotkey": "Control-Option-Space", "startAtLogin": true}
+```
+
+- `hotkey` uses another key (modifiers Command, Option, LeftOption, RightOption,
+  Control, Shift, then Space, a letter, a digit, F1 to F12, Return, Tab or
+  Escape; one of Command, Option or Control is required). `--hotkey` does the
+  same for one launch.
+- `startAtLogin` (default on) registers Ultra Tab as a login item. Only a copy in
+  an Applications folder registers itself; a build-folder copy leaves login
+  items alone. Set it to `false` and launch once to remove it.
 
 Options:
 
-- `--hotkey Command-Shift-U` uses another key (modifiers Command, Option,
-  LeftOption, RightOption, Control, Shift, then Space, a letter, a digit, F1 to F12, Return, Tab or
-  Escape; one of Command, Option or Control is required). A `hotkey` in
-  `~/.lapis/ultratab.json` does the same: `{"hotkey": "Control-Option-Space"}`.
 - `--home FOLDER` reads another lapis data folder (default: `LAPIS_HOME`, else
   `~/.lapis`).
 - `--show` shows the overlay at launch.
@@ -76,7 +113,7 @@ Options:
 ## What it reads and how it answers
 
 Ultra Tab never takes lapis's workspace lock and never writes lapis's files. It
-reads two files in lapis's `runtime/` folder whenever they change:
+reads three files in lapis's `runtime/` folder whenever they change:
 
 - `workspace.json`, the registry: agents, categories, folders and each agent's
   session endpoint and launch.
@@ -85,6 +122,8 @@ reads two files in lapis's `runtime/` folder whenever they change:
   shown with the reply it answers. A lapis built before this file existed shows
   no cards; Ultra Tab says so at the bottom of the overlay. When lapis has
   closed, Ultra Tab shows what it last published and says that too.
+- `ultratab_cards.json`, composed cards written by a separate composer (below).
+  Without it, or for an agent it does not cover, cards are plain.
 
 To answer, it joins the agent's session service as an extra view (as the phone
 does), so the lapis window keeps its own connection and its screen. It never
@@ -93,8 +132,52 @@ session refuses that paste while a request is pending. An agent whose service is
 too old to be joined is reported, never taken over.
 
 lapis records what you sent to an agent in its suggestion log when the next turn
-ends, as it does for any prompt; a guess sent from Ultra Tab is recorded as typed,
-not as taken with Tab.
+ends, as it does for any prompt; a reply sent from Ultra Tab is recorded as
+typed, not as taken with Tab.
+
+## Composed cards
+
+`runtime/ultratab_cards.json` (at most 8 MB, replaced by renaming):
+
+```json
+{"v": 1, "cards": {"<session id>": {
+  "key": "<turn key>", "composed": "2026-10-06T21:04:00Z", "model": "...",
+  "since": "You last looked 3 h ago; 2 turns since",
+  "tldr": "one line",
+  "blocks": [
+    {"type": "text", "text": "..."},
+    {"type": "list", "items": ["..."]},
+    {"type": "table", "columns": ["..."], "rows": [["..."]]},
+    {"type": "diagram", "svg": "<svg ...>"},
+    {"type": "link", "label": "...", "url": "file:///... or https://..."}
+  ],
+  "prompt": "the proposed reply"}}}
+```
+
+The session id is the agent's registry id. A composed card is shown only while
+its `key` names the agent's current turn: the `agent_state.json` values
+`<turnAtMs>|<neededAtMs>|<offer key>|<requests>` joined by `|` (an empty offer
+key when there is no offer), optionally prefixed with `<session id>|`. Any other
+key is stale and the plain card shows. A card without `tldr` keeps the plain
+headline; one without `prompt` keeps lapis's guess. A request card never takes a
+composed prompt.
+
+What is shown, and the limits applied on reading:
+
+- At most three blocks, in order; unknown or invalid blocks are skipped.
+- `text` shows up to five lines; `list` up to six items of two lines each.
+- `table`: up to six columns and eight rows (more rows are counted, not shown).
+  Columns whose filled cells are all numbers ("1,024", "-3.5%", "12 ms",
+  "2.1x") are right-aligned in tabular figures; text columns give way and elide
+  when the table is wider than the card.
+- `diagram`: SVG up to 256 KB, drawn to fit the card at most 200 points tall.
+  It is rejected (and skipped) when it has `script`, `foreignObject`, other
+  embedded content, event-handler attributes, a DTD or entity, a processing
+  instruction, or any reference outside the document (`href` or `url()` that
+  is not `#id`, CSS `@import`). An SVG root without a `fill` is given a light
+  one, so write diagrams for a dark background.
+- `link`: only `https:` with a host and local `file:///` paths; anything else
+  is skipped.
 
 ## Not yet
 
@@ -102,7 +185,8 @@ not as taken with Tab.
 - History is kept only while Ultra Tab runs; nothing is searchable later.
 - The learned Tab order and other ranking beyond lapis's tiers.
 - Answering requests from the deck.
-- A packaged app, a login item and a settings view.
-- The blur behind the overlay (macOS `NSVisualEffectView`) and the global key
-  have not been exercised by an automated check; the overlay's layout and the
-  four answers are checked offscreen.
+- Notarization, a settings view and an update feed for the packaged app.
+- The blur behind the overlay (macOS `NSVisualEffectView`), the global key,
+  dragging and the login item have not been exercised by an automated check;
+  the overlay's layout, composed cards and the four answers are checked
+  offscreen.

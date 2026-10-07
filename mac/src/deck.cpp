@@ -1,8 +1,11 @@
 #include "deck.hpp"
 #include "attention_order.hpp"
 
+#include <QCryptographicHash>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
+#include <QMutexLocker>
 #include <QPointer>
 #include <QRegularExpression>
 #include <algorithm>
@@ -33,7 +36,8 @@ bool waits_for_prompt(const QString& status) {
 QString what_happened(const AgentState& state) {
     if (state.requests > 0) {
         const auto reason = one_sentence(state.request);
-        return reason.isEmpty() ? QStringLiteral("Asks for your answer in lapis.") : reason;
+        return reason.isEmpty() ? QStringLiteral("Asks for your answer in its own window.")
+                                : reason;
     }
     if (state.offer)
         if (const auto said = one_sentence(state.offer->said); !said.isEmpty())
@@ -72,6 +76,12 @@ std::optional<Card> card_for(const Agent& agent, const AgentState& state, int po
     card.tier = tier;
     card.needed_at_ms = state.needed_at_ms;
     card.position = position;
+    if (const auto composed = published.composed.cards.constFind(agent.id);
+        composed != published.composed.cards.cend() && key_current(*composed, card.key)) {
+        card.composed = *composed;
+        if (!request && !composed->prompt.isEmpty())
+            card.proposal = composed->prompt;
+    }
     return card;
 }
 } // namespace
@@ -113,12 +123,35 @@ QString one_sentence(const QString& text, qsizetype limit) {
     return line;
 }
 
+void DiagramStore::replace(QHash<QString, QString> svgs) {
+    const QMutexLocker lock(&mutex_);
+    svgs_ = std::move(svgs);
+}
+
+QString DiagramStore::svg(const QString& key) const {
+    const QMutexLocker lock(&mutex_);
+    return svgs_.value(key);
+}
+
+QString DiagramStore::key_for(const QString& svg) {
+    return QString::fromLatin1(
+        QCryptographicHash::hash(svg.toUtf8(), QCryptographicHash::Sha256).toHex().left(32));
+}
+
 Deck::Deck(Sender& sender, QObject* parent)
-    : QObject(parent), sender_(sender), running_(&writer_running) {}
+    : QObject(parent), sender_(sender), running_(&writer_running),
+      opener_([](const QUrl& url) { QDesktopServices::openUrl(url); }) {}
 
 void Deck::setPublished(const Published& published) {
     published_ = published;
     cards_ = waiting_cards(published_);
+    QHash<QString, QString> svgs;
+    for (const auto& card : cards_)
+        if (card.composed)
+            for (const auto& block : card.composed->blocks)
+                if (block.type == Block::Type::diagram)
+                    svgs.insert(DiagramStore::key_for(block.svg), block.svg);
+    diagrams_->replace(std::move(svgs));
     // Forget answers to cards whose agent is gone; keep the rest so an
     // answered card stays hidden until the agent has something new.
     QSet<QString> ids;
@@ -142,8 +175,62 @@ std::vector<Card> Deck::visible() const {
     return shown;
 }
 
+QVariantList Deck::describe_blocks(const ComposedCard& composed) {
+    QVariantList blocks;
+    int links = 0;
+    for (const auto& block : composed.blocks) {
+        switch (block.type) {
+        case Block::Type::text:
+            blocks.append(QVariantMap{{QStringLiteral("type"), QStringLiteral("text")},
+                                      {QStringLiteral("text"), block.text}});
+            break;
+        case Block::Type::list:
+            blocks.append(QVariantMap{{QStringLiteral("type"), QStringLiteral("list")},
+                                      {QStringLiteral("items"), block.items}});
+            break;
+        case Block::Type::table: {
+            QVariantList rows;
+            for (const auto& row : block.rows)
+                rows.append(QVariant(row));
+            QVariantList numeric;
+            for (const bool number : block.numeric)
+                numeric.append(number);
+            blocks.append(QVariantMap{{QStringLiteral("type"), QStringLiteral("table")},
+                                      {QStringLiteral("columns"), block.columns},
+                                      {QStringLiteral("rows"), rows},
+                                      {QStringLiteral("numeric"), numeric},
+                                      {QStringLiteral("more"), block.more_rows}});
+            break;
+        }
+        case Block::Type::diagram:
+            blocks.append(
+                QVariantMap{{QStringLiteral("type"), QStringLiteral("diagram")},
+                            {QStringLiteral("source"),
+                             QStringLiteral("image://diagram/") + DiagramStore::key_for(block.svg)},
+                            {QStringLiteral("aspect"), block.size.width() / block.size.height()}});
+            break;
+        case Block::Type::link:
+            blocks.append(QVariantMap{
+                {QStringLiteral("type"), QStringLiteral("link")},
+                {QStringLiteral("label"), block.label},
+                {QStringLiteral("target"), block.url.isLocalFile()
+                                               ? QDir::toNativeSeparators(block.url.toLocalFile())
+                                               : block.url.host()},
+                {QStringLiteral("index"), links++}});
+            break;
+        }
+    }
+    return blocks;
+}
+
 QVariantMap Deck::describe(const Card& card) {
+    const auto& composed = card.composed;
+    const auto headline = composed && !composed->tldr.isEmpty() ? composed->tldr : card.line;
     return {{QStringLiteral("key"), card.key},
+            {QStringLiteral("composed"), composed.has_value()},
+            {QStringLiteral("since"), composed ? composed->since : QString()},
+            {QStringLiteral("headline"), headline},
+            {QStringLiteral("blocks"), composed ? describe_blocks(*composed) : QVariantList{}},
             {QStringLiteral("agent"), card.agent_id},
             {QStringLiteral("name"), card.name},
             {QStringLiteral("folder"), card.folder},
@@ -212,12 +299,12 @@ QVariantList Deck::history() const {
 
 QString Deck::notice() const {
     if (!published_.has_registry)
-        return published_.problem.isEmpty() ? QStringLiteral("No lapis workspace found.")
+        return published_.problem.isEmpty() ? QStringLiteral("No agent workspace found.")
                                             : published_.problem;
     if (!published_.has_state)
-        return QStringLiteral("This lapis does not publish its agents' state yet.");
+        return QStringLiteral("The agent window does not publish its agents' state yet.");
     if (!running_(published_.writer_pid))
-        return QStringLiteral("lapis is closed; this is what it last showed.");
+        return QStringLiteral("The agent window is closed; this is what it last showed.");
     return {};
 }
 
@@ -289,6 +376,24 @@ bool Deck::skip() {
     message_.clear();
     emit changed();
     return true;
+}
+
+bool Deck::openLink(int index) {
+    const auto shown = visible();
+    if (shown.empty() || !shown.front().composed || index < 0)
+        return false;
+    int links = 0;
+    for (const auto& block : shown.front().composed->blocks)
+        if (block.type == Block::Type::link && links++ == index) {
+            // Checked again here: only what parsing admitted is ever opened.
+            if (!openable(block.url))
+                return false;
+            opener_(block.url);
+            message_ = QStringLiteral("Opened %1").arg(block.label);
+            emit changed();
+            return true;
+        }
+    return false;
 }
 
 void Deck::setListening(bool on) {

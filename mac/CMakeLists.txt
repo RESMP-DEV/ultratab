@@ -1,7 +1,7 @@
 # Ultra Tab: a second app beside the lapis window that deals the agents that
 # need you as a deck of cards. It reuses the session transport and launch
 # identity and reads only what lapis publishes (docs/ultratab.md).
-find_package(Qt6 6.11.2 EXACT REQUIRED COMPONENTS Core Gui Qml Quick Network)
+find_package(Qt6 6.11.2 EXACT REQUIRED COMPONENTS Core Gui Qml Quick Network Svg)
 set(CMAKE_AUTOMOC ON)
 if(APPLE)
     enable_language(OBJCXX)
@@ -9,6 +9,8 @@ endif()
 
 add_library(lapis_ultratab_core STATIC
     src/published.cpp src/published.hpp
+    src/cards.cpp src/cards.hpp
+    src/settings.cpp src/settings.hpp
     src/deck.cpp src/deck.hpp
     src/session_sender.cpp src/session_sender.hpp
     src/hotkey.cpp src/hotkey.hpp
@@ -19,21 +21,26 @@ target_include_directories(lapis_ultratab_core PUBLIC "${CMAKE_CURRENT_SOURCE_DI
 target_include_directories(lapis_ultratab_core PRIVATE "${PROJECT_SOURCE_DIR}/apps/desktop/src")
 target_link_libraries(lapis_ultratab_core PRIVATE lapis_project_options
     PUBLIC lapis_local_protocol lapis_session_launch Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick
-        Qt6::Network)
+        Qt6::Network Qt6::Svg)
 qt_add_resources(lapis_ultratab_core ultratab_qml PREFIX "/ultratab" FILES qml/Overlay.qml)
 
+# A standalone app: "Ultra Tab.app", no Dock icon (LSUIElement), its own
+# bundle identity. scripts/package_ultratab.py adds the icon and signs it.
 qt_add_executable(lapis_ultratab MACOSX_BUNDLE src/main.cpp)
 if(APPLE)
     target_sources(lapis_ultratab PRIVATE src/platform_overlay_mac.mm)
-    target_link_libraries(lapis_ultratab PRIVATE "-framework AppKit" "-framework Carbon")
+    target_link_libraries(lapis_ultratab PRIVATE "-framework AppKit" "-framework Carbon"
+        "-framework ServiceManagement")
 endif()
 target_link_libraries(lapis_ultratab PRIVATE lapis_project_options lapis_ultratab_core)
 set_target_properties(lapis_ultratab PROPERTIES
+    OUTPUT_NAME "Ultra Tab"
+    MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macos/Info.plist.in"
     MACOSX_BUNDLE_BUNDLE_NAME "Ultra Tab"
-    MACOSX_BUNDLE_GUI_IDENTIFIER "dev.lapis.ultratab"
+    MACOSX_BUNDLE_GUI_IDENTIFIER "dev.ultratab.app"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
-    MACOSX_BUNDLE_COPYRIGHT "Copyright (c) 2026 lapis contributors. MIT License.")
+    MACOSX_BUNDLE_COPYRIGHT "Copyright (c) 2026 Ultra Tab contributors. MIT License.")
 
 if(BUILD_TESTING)
     add_executable(lapis_ultratab_tests tests/ultratab_test.cpp)

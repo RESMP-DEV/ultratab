@@ -4,6 +4,7 @@
 #import <Carbon/Carbon.h>
 #include <QHash>
 #include <QWindow>
+#import <ServiceManagement/ServiceManagement.h>
 
 namespace lapis::ultratab::platform {
 namespace {
@@ -161,4 +162,31 @@ void activate() {
 }
 
 void yield() { [NSApp hide:nil]; }
+
+bool reduce_motion() { return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion; }
+
+QString set_start_at_login(bool on) {
+    NSString* bundle = NSBundle.mainBundle.bundlePath;
+    NSString* folder = bundle.stringByDeletingLastPathComponent;
+    const bool installed =
+        [bundle.pathExtension isEqualToString:@"app"] &&
+        ([folder isEqualToString:@"/Applications"] ||
+         [folder
+             isEqualToString:[NSHomeDirectory() stringByAppendingPathComponent:@"Applications"]]);
+    if (!installed)
+        return QStringLiteral("not installed in Applications; login item left alone");
+    SMAppService* service = SMAppService.mainAppService;
+    const bool registered = service.status == SMAppServiceStatusEnabled ||
+                            service.status == SMAppServiceStatusRequiresApproval;
+    if (on == registered)
+        return on ? QStringLiteral("starts at login") : QStringLiteral("does not start at login");
+    NSError* error = nil;
+    const bool done =
+        on ? [service registerAndReturnError:&error] : [service unregisterAndReturnError:&error];
+    if (!done)
+        return QStringLiteral("login item not changed: %1")
+            .arg(QString::fromNSString(error.localizedDescription));
+    return on ? QStringLiteral("starts at login (registered)")
+              : QStringLiteral("does not start at login (removed)");
+}
 } // namespace lapis::ultratab::platform

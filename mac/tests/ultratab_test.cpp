@@ -7,6 +7,7 @@
 #include "launch_spec.hpp"
 #include "published.hpp"
 #include "session_sender.hpp"
+#include "settings.hpp"
 #include "transport/local_protocol.hpp"
 
 #include <QCoreApplication>
@@ -19,6 +20,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <lapis/session/terminal.hpp>
 
 #include <functional>
@@ -315,7 +317,7 @@ void hotkeys() {
             "the default is the left Option key only");
     const auto right = parse_hotkey(QStringLiteral("rightalt+space"));
     require(right && right->optionSide == Side::right, "the right Option key");
-    require(standard->optionSide == Side::any, "plain Option is either key");
+    require(standard && standard->optionSide == Side::any, "plain Option is either key");
     for (const auto* refused : {"Space", "Shift-A", "Option-F13", "Option-", "Hyper-K", ""})
         require(!parse_hotkey(QString::fromLatin1(refused)), refused);
 }
@@ -443,6 +445,228 @@ void joinsBesideTheWindow() {
                 "an agent whose service is gone is reported");
     }
 }
+QByteArray cardsFile(const QJsonObject& cards) {
+    return QJsonDocument(QJsonObject{{QStringLiteral("v"), 1}, {QStringLiteral("cards"), cards}})
+        .toJson();
+}
+
+void composedCardsParse() {
+    const QJsonObject card{
+        {QStringLiteral("key"), QStringLiteral("k")},
+        {QStringLiteral("composed"), QStringLiteral("2026-10-06T21:04:00.250Z")},
+        {QStringLiteral("model"), QStringLiteral("m")},
+        {QStringLiteral("since"), QStringLiteral("2 turns since")},
+        {QStringLiteral("tldr"), QStringLiteral("  headline  ")},
+        {QStringLiteral("prompt"), QStringLiteral("do it")},
+        {QStringLiteral("blocks"),
+         QJsonArray{
+             QJsonObject{{QStringLiteral("type"), QStringLiteral("table")},
+                         {QStringLiteral("columns"),
+                          QJsonArray{QStringLiteral("name"), QStringLiteral("ms")}},
+                         {QStringLiteral("rows"),
+                          QJsonArray{QJsonArray{QStringLiteral("a"), QStringLiteral("1,024")},
+                                     QJsonArray{QStringLiteral("b")},
+                                     QJsonArray{QStringLiteral("c"), QStringLiteral("3.5 ms"),
+                                                QStringLiteral("extra")}}}},
+             QJsonObject{{QStringLiteral("type"), QStringLiteral("link")},
+                         {QStringLiteral("label"), QStringLiteral("bad")},
+                         {QStringLiteral("url"), QStringLiteral("javascript:alert(1)")}},
+             QJsonObject{{QStringLiteral("type"), QStringLiteral("video")}},
+             QJsonObject{{QStringLiteral("type"), QStringLiteral("list")},
+                         {QStringLiteral("items"), QJsonArray{QStringLiteral("one"), {}}}},
+             QJsonObject{{QStringLiteral("type"), QStringLiteral("link")},
+                         {QStringLiteral("url"), QStringLiteral("https://example.com/x")}},
+             QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
+                         {QStringLiteral("text"), QStringLiteral("a fourth block")}}}}};
+    const auto parsed = parse_cards(
+        cardsFile({{id('a'), card}, {id('b'), QJsonObject{}}, {id('c'), QJsonValue(3)}}));
+    require(parsed.present && parsed.problem.isEmpty() && parsed.cards.size() == 1,
+            "a card needs a key; anything else is dropped");
+    const auto& read = parsed.cards.value(id('a'));
+    require(read.tldr == QLatin1String("headline") &&
+                read.since == QLatin1String("2 turns since") &&
+                read.prompt == QLatin1String("do it") && read.composed.isValid(),
+            "the card's lines are read and trimmed");
+    require(read.blocks.size() == max_blocks, "at most three valid blocks, in order");
+    const auto& table = read.blocks.at(0);
+    require(table.type == Block::Type::table && table.rows.size() == 3 &&
+                table.rows.at(1) == QStringList{QStringLiteral("b"), QString()} &&
+                table.rows.at(2).size() == 2 && table.numeric == QList<bool>{false, true},
+            "rows are padded or cut to the columns; a column of numbers is numeric");
+    require(read.blocks.at(1).type == Block::Type::list && read.blocks.at(1).items.size() == 1,
+            "unsafe links and unknown types are skipped; empty items dropped");
+    require(read.blocks.at(2).type == Block::Type::link &&
+                read.blocks.at(2).label == QLatin1String("example.com"),
+            "a link without a label is named by its host");
+
+    require(!parse_cards(QByteArrayLiteral("{\"v\":2,\"cards\":{}}")).present &&
+                !parse_cards(QByteArrayLiteral("{\"v\":2}")).problem.isEmpty(),
+            "another version is reported, not read");
+    require(!parse_cards({}).present && parse_cards({}).problem.isEmpty(), "no file is no cards");
+
+    QJsonArray rows;
+    for (int row = 0; row < max_table_rows + 3; ++row)
+        rows.append(QJsonArray{QString::number(row)});
+    const auto long_table = parse_cards(cardsFile(
+        {{id('a'), QJsonObject{{QStringLiteral("key"), QStringLiteral("k")},
+                               {QStringLiteral("blocks"),
+                                QJsonArray{QJsonObject{
+                                    {QStringLiteral("type"), QStringLiteral("table")},
+                                    {QStringLiteral("columns"), QJsonArray{QStringLiteral("n")}},
+                                    {QStringLiteral("rows"), rows}}}}}}}));
+    const auto& cut = long_table.cards.value(id('a')).blocks.at(0);
+    require(cut.rows.size() == max_table_rows && cut.more_rows == 3,
+            "a long table keeps its first rows and counts the rest");
+
+    for (const auto* cell : {"1,024", "-3.5%", "12 ms", "2.1x", "+7", "0", "$4.50", "~30 s"})
+        require(numeric_cell(QString::fromUtf8(cell)), "a number reads as numeric");
+    for (const auto* cell : {"", "abc", "v1.2.3", "12 apples", "-", "1-2"})
+        require(!numeric_cell(QString::fromUtf8(cell)), "text is not numeric");
+
+    require(openable(QUrl(QStringLiteral("https://example.com/a"))) &&
+                openable(QUrl(QStringLiteral("file:///tmp/report.html"))),
+            "https and local files open");
+    for (const auto* url : {"http://example.com", "javascript:alert(1)", "file://host/share/x",
+                            "https://user:pw@example.com", "smb://x/y", "data:text/html,x", ""})
+        require(!openable(QUrl(QString::fromUtf8(url))), "anything else does not");
+}
+
+void composedCardsFollowTheTurn() {
+    auto published = fixture();
+    const QString key_a = id('a') + QStringLiteral("|300|300|a:1|0");
+    const auto keyed = [](const QString& key) {
+        ComposedCard card;
+        card.key = key;
+        return card;
+    };
+    require(key_current(keyed(key_a), key_a) &&
+                key_current(keyed(QStringLiteral("300|300|a:1|0")), key_a) &&
+                !key_current(keyed(QStringLiteral("299|299|a:1|0")), key_a) &&
+                !key_current(keyed({}), key_a) &&
+                !key_current(keyed(QStringLiteral("|300|300|a:1|0")), key_a),
+            "a key is current with or without the session prefix, and only then");
+    published.composed = parse_cards(cardsFile(
+        {{id('a'), QJsonObject{{QStringLiteral("key"), QStringLiteral("300|300|a:1|0")},
+                               {QStringLiteral("tldr"), QStringLiteral("rich")},
+                               {QStringLiteral("prompt"), QStringLiteral("composed reply")}}},
+         {id('b'), QJsonObject{{QStringLiteral("key"), QStringLiteral("99|99||0")},
+                               {QStringLiteral("prompt"), QStringLiteral("stale reply")}}},
+         {id('c'), QJsonObject{{QStringLiteral("key"), id('c') + QStringLiteral("|200|200||1")},
+                               {QStringLiteral("prompt"), QStringLiteral("never sent")}}}}));
+    const auto cards = waiting_cards(published);
+    require(cards.at(0).composed && cards.at(0).proposal == QLatin1String("composed reply"),
+            "a current composed card brings its prompt");
+    require(!cards.at(1).composed && cards.at(1).proposal.isEmpty(),
+            "a stale one falls back to the plain card");
+    require(cards.at(2).composed && cards.at(2).request && cards.at(2).proposal.isEmpty(),
+            "a request card never takes a composed prompt");
+
+    // The deck: Tab sends the composed prompt, and links open only by index.
+    FakeSender sender;
+    Deck deck(sender);
+    deck.setWriterCheck([](qint64) { return true; });
+    std::vector<QUrl> opened;
+    deck.setLinkOpener([&opened](const QUrl& url) { opened.push_back(url); });
+    deck.setPublished(published);
+    require(deck.front().value(QStringLiteral("headline")).toString() == QLatin1String("rich") &&
+                deck.front().value(QStringLiteral("composed")).toBool(),
+            "the deck shows the tldr as the headline");
+    require(!deck.openLink(0) && opened.empty(), "no link, nothing opens");
+    require(deck.accept() && sender.sent.back().text == QLatin1String("composed reply"),
+            "Tab sends the composed prompt");
+}
+
+void svgIsSanitized() {
+    const auto ok = sanitize_svg(QStringLiteral(
+        "<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' "
+        "viewBox='0 0 10 10'><defs><linearGradient id='g'><stop offset='0' "
+        "stop-color='#fff'/></linearGradient></defs><rect width='5' height='5' "
+        "fill='url(#g)'/><use xlink:href='#g'/><text>hi</text></svg>"));
+    require(ok && ok->contains(QStringLiteral("fill=\"#c6d2e4\"")),
+            "a clean diagram passes and gets a light default fill");
+    require(sanitize_svg(QStringLiteral("<svg fill='red' viewBox='0 0 1 1'/>")) ==
+                QStringLiteral("<svg fill='red' viewBox='0 0 1 1'/>"),
+            "a root fill is kept as written");
+    for (const auto* bad : {
+             "<svg><script>alert(1)</script></svg>",
+             "<svg><SCRIPT>alert(1)</SCRIPT></svg>",
+             "<svg><foreignObject><div/></foreignObject></svg>",
+             "<svg onload='alert(1)'/>",
+             "<svg><rect onclick='x()'/></svg>",
+             "<svg><image href='https://example.com/a.png'/></svg>",
+             "<svg><rect fill='url(https://example.com/x#g)'/></svg>",
+             "<svg><rect style='fill:url(\"http://x/y\")'/></svg>",
+             "<svg><style>@import url(https://example.com/x.css);</style></svg>",
+             "<svg><style>rect{fill:url(http://x/y)}</style></svg>",
+             "<svg><a href='javascript:alert(1)'><rect/></a></svg>",
+             "<?xml-stylesheet href='https://example.com/x.css'?><svg/>",
+             "<html><svg/></html>",
+             "<svg><rect></svg>",
+             "",
+         })
+        require(!sanitize_svg(QString::fromUtf8(bad)), "unsafe or broken SVG is rejected");
+    const auto external_use = QStringLiteral("<svg xmlns:xlink='http://www.w3.org/1999/xlink'>") +
+                              QStringLiteral("<use xlink:href='file:///etc/passwd#x'/></svg>");
+    const auto entity = QStringLiteral("<?xml version='1.0'?><!DOCTYPE svg [<!ENTITY x SYSTEM ") +
+                        QStringLiteral("'file:///etc/passwd'>]><svg>&x;</svg>");
+    require(!sanitize_svg(external_use) && !sanitize_svg(entity),
+            "an external use and an entity are rejected");
+    require(!sanitize_svg(QStringLiteral("<svg>") + QString(max_svg_bytes, QLatin1Char(' ')) +
+                          QStringLiteral("</svg>")),
+            "an oversized SVG is rejected");
+
+    // A diagram block whose SVG fails is dropped, not shown broken.
+    const auto parsed = parse_cards(cardsFile(
+        {{id('a'),
+          QJsonObject{
+              {QStringLiteral("key"), QStringLiteral("k")},
+              {QStringLiteral("blocks"),
+               QJsonArray{
+                   QJsonObject{{QStringLiteral("type"), QStringLiteral("diagram")},
+                               {QStringLiteral("svg"), QStringLiteral("<svg><script/></svg>")}},
+                   QJsonObject{{QStringLiteral("type"), QStringLiteral("diagram")},
+                               {QStringLiteral("svg"),
+                                QStringLiteral("<svg xmlns='http://www.w3.org/2000/"
+                                               "svg' viewBox='0 0 40 10'><rect "
+                                               "width='4' height='4'/></svg>")}}}}}}}));
+    const auto& blocks = parsed.cards.value(id('a')).blocks;
+    require(blocks.size() == 1 && blocks.at(0).size == QSizeF(40, 10),
+            "an unsafe diagram is dropped; a safe one keeps its aspect");
+}
+
+void settingsAndPlacement() {
+    require(parse_settings({}).start_at_login && parse_settings({}).hotkey.isEmpty(),
+            "start at login is on by default");
+    const auto off = parse_settings(
+        QByteArrayLiteral("{\"hotkey\":\"Control-Option-Space\",\"startAtLogin\":false}"));
+    require(!off.start_at_login && off.hotkey == QLatin1String("Control-Option-Space"),
+            "both settings are read");
+
+    QTemporaryDir home;
+    require(home.isValid(), "a home folder");
+    const auto screen = screen_key(QStringLiteral("Built-in"), QRect(0, 0, 1512, 982));
+    require(read_positions(home.path()).isEmpty(), "no window memory yet");
+    require(write_positions(home.path(), {{screen, QPoint(40, 60)}}) &&
+                read_positions(home.path()).value(screen) == QPoint(40, 60),
+            "a position is kept per screen across launches");
+    require(!write_positions({}, {}), "no home, nothing written");
+    require(parse_positions(QByteArrayLiteral("{\"v\":1,\"positions\":{\"s\":[1]}}")).isEmpty(),
+            "a malformed position is ignored");
+
+    const QRect area(0, 25, 1512, 950);
+    const QSize size(1200, 800);
+    const auto centered = place_window(area, size, std::nullopt);
+    require(centered.size() == size && centered.center().x() == area.center().x(),
+            "with no memory it is centered");
+    require(place_window(area, size, QPoint(100, 120)).topLeft() == QPoint(100, 120),
+            "where it was left");
+    require(place_window(area, size, QPoint(400, 120)).topLeft() == QPoint(312, 120),
+            "partly off the screen, it is moved inside");
+    require(place_window(area, size, QPoint(5000, 5000)) == centered,
+            "off this screen entirely, it is centered");
+    require(place_window(QRect(0, 0, 800, 600), size, std::nullopt).size() == QSize(800, 600),
+            "never larger than the screen");
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -454,6 +678,10 @@ int main(int argc, char** argv) {
         fourAnswers();
         hotkeys();
         joinsBesideTheWindow();
+        composedCardsParse();
+        composedCardsFollowTheTurn();
+        svgIsSanitized();
+        settingsAndPlacement();
     } catch (const std::exception& error) {
         std::cerr << "ultratab test failed: " << error.what() << '\n';
         return 1;
