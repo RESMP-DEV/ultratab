@@ -137,7 +137,8 @@ struct DeckView: View {
             if !deck.running.isEmpty {
                 VStack(spacing: 4) {
                     Text("AT WORK").font(.caption2.weight(.bold)).tracking(1.2).foregroundStyle(Theme.quiet)
-                    ForEach(deck.running.prefix(12), id: \.self) { name in
+                    // Two agents can share a name; rows are told apart by place.
+                    ForEach(Array(deck.running.prefix(12).enumerated()), id: \.offset) { _, name in
                         Text(name).font(.footnote).foregroundStyle(Theme.body)
                     }
                 }
@@ -166,13 +167,18 @@ struct DeckView: View {
     // take that answer (it springs back and the message says why).
     @discardableResult
     private func answer(_ swipe: Swipe) -> Bool {
-        if swipe == .accept, let front = deck.front, !front.canAccept {
+        // One answer at a time: a second tap during the slide does nothing.
+        if leaving != 0 { return true }
+        guard let front = deck.front else { return false }
+        if swipe == .accept, !front.canAccept {
             deck.accept() // only says why
             return false
         }
+        let key = front.key
         let direction = swipe == .accept ? 1.0 : -1.0
         let finish = {
-            deck.apply(swipe)
+            // The card swiped, never one that came forward meanwhile.
+            if deck.front?.key == key { deck.apply(swipe) }
             drag = .zero
             leaving = 0
         }
@@ -279,7 +285,10 @@ struct AnnotateBar: View {
             }
         }
         .onChange(of: front?.key) { _, _ in
+            // A note is for the card it was written on; a refused send keeps
+            // the same key, so the draft stays for another try.
             stopListening()
+            text = ""
         }
     }
 

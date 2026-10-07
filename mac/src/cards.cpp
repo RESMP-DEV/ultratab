@@ -51,8 +51,9 @@ bool safe_style(QStringView css) {
 struct SvgScan {
     bool safe = true;
     bool root = true;
-    bool in_style = false;
+    int style_depth = 0; // inside <style>, through any nested element
     bool root_fill = false;
+    qint64 root_end = -1; // just past the root start tag
 
     static bool safe_attribute(const QXmlStreamAttribute& attribute) {
         const auto name = attribute.name().toString().toLower();
@@ -76,9 +77,12 @@ struct SvgScan {
         }
         const auto attributes = reader.attributes();
         safe = std::all_of(attributes.cbegin(), attributes.cend(), &safe_attribute);
-        if (root)
+        if (root) {
             root_fill = attributes.hasAttribute(QStringLiteral("fill"));
-        in_style = name == QLatin1String("style");
+            root_end = reader.characterOffset();
+        }
+        if (name == QLatin1String("style"))
+            ++style_depth;
         root = false;
     }
 };
@@ -238,10 +242,12 @@ std::optional<QString> sanitize_svg(const QString& svg) {
             scan.element(reader);
             break;
         case QXmlStreamReader::EndElement:
-            scan.in_style = false;
+            if (scan.style_depth > 0 &&
+                reader.name().compare(QLatin1String("style"), Qt::CaseInsensitive) == 0)
+                --scan.style_depth;
             break;
         case QXmlStreamReader::Characters:
-            scan.safe = !scan.in_style || safe_style(reader.text());
+            scan.safe = scan.style_depth == 0 || safe_style(reader.text());
             break;
         default:
             break;
@@ -251,12 +257,15 @@ std::optional<QString> sanitize_svg(const QString& svg) {
         return std::nullopt;
     auto clean = svg;
     if (!scan.root_fill) {
-        // Inherited by every shape and text that sets no fill of its own.
-        const auto at = clean.indexOf(QLatin1String("<svg"), 0, Qt::CaseInsensitive);
-        if (at >= 0)
+        // Inherited by every shape and text that sets no fill of its own. It
+        // goes into the root tag the parser read, before its closing > or />.
+        auto at = scan.root_end - 1;
+        if (at > 0 && at < clean.size() && clean.at(at) == QLatin1Char('>')) {
+            if (clean.at(at - 1) == QLatin1Char('/'))
+                --at;
             clean.insert(
-                at + 4,
-                QStringLiteral(" fill=\"%1\" color=\"%1\"").arg(QLatin1String(kDefaultFill)));
+                at, QStringLiteral(" fill=\"%1\" color=\"%1\"").arg(QLatin1String(kDefaultFill)));
+        }
     }
     return clean;
 }

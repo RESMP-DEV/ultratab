@@ -146,7 +146,8 @@ The lapis window must come from a build that publishes `agent_state.json`
 (below); restart it once after updating.
 
 The left Option key with Space shows or hides the overlay; the right Option key
-with Space is left alone. It never comes forward or takes the keyboard on its
+with Space does nothing. macOS registers the chord for both Option keys, so other
+apps do not receive right Option-Space while Ultra Tab runs. It never comes forward or takes the keyboard on its
 own: a new card arriving while you work in another app changes nothing until you
 press the key. Drag the overlay by its background to move it; it keeps that place
 on that screen across launches (in `ultratab-window.json` beside `ultratab.json`)

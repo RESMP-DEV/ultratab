@@ -302,6 +302,40 @@ void fourAnswers() {
     require(!deck.notice().isEmpty(), "a closed lapis is noticed");
 }
 
+// A card that comes forward while a reply is typed never receives it.
+void draftsKeepTheirCard() {
+    FakeSender sender;
+    Deck deck(sender);
+    deck.setPublished(fixture());
+    require(deck.front().value(QStringLiteral("name")) == QLatin1String("persist-gui"),
+            "persist-gui is in front");
+    deck.setDrafting(true);
+    // gameserver gets a guess it has not shown and has waited longer: it
+    // would go in front of persist-gui.
+    auto next = fixture();
+    next.states[id('b')].offer = Offer{QStringLiteral("b:1"), QStringLiteral("restart it"),
+                                      QStringLiteral("It crashed."), false};
+    deck.setPublished(next);
+    require(deck.front().value(QStringLiteral("name")) == QLatin1String("persist-gui"),
+            "the card being typed to stays in front");
+    deck.setDrafting(false);
+    require(deck.front().value(QStringLiteral("name")) == QLatin1String("gameserver"),
+            "cleared text lets the order through again");
+    deck.setDrafting(true);
+    // gameserver starts working (answered in lapis) before Return.
+    auto busy = next;
+    busy.states[id('b')].status = QStringLiteral("working");
+    deck.setPublished(busy);
+    require(!deck.send(QStringLiteral("for gameserver")) &&
+                !deck.send(QStringLiteral("for gameserver")) && sender.sent.empty(),
+            "a draft is never sent to another agent, however often Return is pressed");
+    deck.setDrafting(false); // Escape clears it
+    deck.setDrafting(true);
+    require(deck.send(QStringLiteral("for persist-gui")) && sender.sent.size() == 1 &&
+                sender.sent[0].agent == id('a'),
+            "the next draft goes to the card in front");
+}
+
 void hotkeys() {
     const auto standard = parse_hotkey(QStringLiteral("Option-Space"));
     require(standard && standard->option && !standard->command && standard->key == "Space",
@@ -587,6 +621,12 @@ void svgIsSanitized() {
     require(sanitize_svg(QStringLiteral("<svg fill='red' viewBox='0 0 1 1'/>")) ==
                 QStringLiteral("<svg fill='red' viewBox='0 0 1 1'/>"),
             "a root fill is kept as written");
+    const auto commented =
+        sanitize_svg(QStringLiteral("<!-- an <svg> sketch --><svg viewBox='0 0 1 1'/>"));
+    require(commented && commented->endsWith(QStringLiteral(
+                             "<svg viewBox='0 0 1 1' fill=\"#c6d2e4\" color=\"#c6d2e4\"/>")) &&
+                commented->startsWith(QStringLiteral("<!-- an <svg> sketch -->")),
+            "the default fill goes into the root tag, not a comment before it");
     for (const auto* bad : {
              "<svg><script>alert(1)</script></svg>",
              "<svg><SCRIPT>alert(1)</SCRIPT></svg>",
@@ -598,6 +638,7 @@ void svgIsSanitized() {
              "<svg><rect style='fill:url(\"http://x/y\")'/></svg>",
              "<svg><style>@import url(https://example.com/x.css);</style></svg>",
              "<svg><style>rect{fill:url(http://x/y)}</style></svg>",
+             "<svg><style><g/>@import url(https://example.com/x.css);</style></svg>",
              "<svg><a href='javascript:alert(1)'><rect/></a></svg>",
              "<?xml-stylesheet href='https://example.com/x.css'?><svg/>",
              "<html><svg/></html>",
@@ -676,6 +717,7 @@ int main(int argc, char** argv) {
         cardsFollowLapisTabOrder();
         sentencesAreShort();
         fourAnswers();
+        draftsKeepTheirCard();
         hotkeys();
         joinsBesideTheWindow();
         composedCardsParse();

@@ -2,25 +2,32 @@
 
 #include <QRegularExpression>
 #include <QStringList>
+#include <optional>
 
 namespace lapis::ultratab {
 namespace {
 // The modifier a word names, or false when it names none.
 bool apply_modifier(const QString& word, Hotkey& hotkey) {
-    if (word == QLatin1String("command") || word == QLatin1String("cmd"))
+    const auto option_side = [&]() -> std::optional<Side> {
+        if (word == QLatin1String("option") || word == QLatin1String("opt") ||
+            word == QLatin1String("alt"))
+            return Side::any;
+        if (word == QLatin1String("leftoption") || word == QLatin1String("leftopt") ||
+            word == QLatin1String("leftalt"))
+            return Side::left;
+        if (word == QLatin1String("rightoption") || word == QLatin1String("rightopt") ||
+            word == QLatin1String("rightalt"))
+            return Side::right;
+        return std::nullopt;
+    }();
+    if (option_side) {
+        // One Option word only: "LeftOption-RightOption" names no key.
+        if (hotkey.option)
+            return false;
+        hotkey.option = true;
+        hotkey.optionSide = *option_side;
+    } else if (word == QLatin1String("command") || word == QLatin1String("cmd"))
         hotkey.command = true;
-    else if (word == QLatin1String("option") || word == QLatin1String("opt") ||
-             word == QLatin1String("alt"))
-        hotkey.option = true;
-    else if (word == QLatin1String("leftoption") || word == QLatin1String("leftopt") ||
-             word == QLatin1String("leftalt")) {
-        hotkey.option = true;
-        hotkey.optionSide = Side::left;
-    } else if (word == QLatin1String("rightoption") || word == QLatin1String("rightopt") ||
-               word == QLatin1String("rightalt")) {
-        hotkey.option = true;
-        hotkey.optionSide = Side::right;
-    }
     else if (word == QLatin1String("control") || word == QLatin1String("ctrl"))
         hotkey.control = true;
     else if (word == QLatin1String("shift"))

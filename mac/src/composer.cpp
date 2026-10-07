@@ -84,7 +84,10 @@ ProcessComposeRunner::~ProcessComposeRunner() {
 void ProcessComposeRunner::start(const QJsonObject& job, std::chrono::milliseconds timeout,
                                  Done done) {
     if (python_.isEmpty() || script_.isEmpty()) {
-        done(std::nullopt, QStringLiteral("helper unavailable"));
+        // Reported from the event loop, never from inside start().
+        QTimer::singleShot(0, this, [done = std::move(done)] {
+            done(std::nullopt, QStringLiteral("helper unavailable"));
+        });
         return;
     }
     auto* process = new QProcess(this);
@@ -190,9 +193,22 @@ Composer::Composer(ComposeRunner& runner, Paths paths, ComposerSettings settings
         const auto root = QJsonDocument::fromJson(written_).object();
         if (root.value(QStringLiteral("v")).toInt() == kFileVersion) {
             const auto cards = root.value(QStringLiteral("cards")).toObject();
-            for (auto card = cards.begin(); card != cards.end(); ++card)
-                if (card.value().isObject())
-                    cards_.insert(card.key(), {card.value().toObject(), -1});
+            for (auto card = cards.begin(); card != cards.end(); ++card) {
+                if (!card.value().isObject())
+                    continue;
+                // A card composed for a finished turn names it in its key, so
+                // a guess for that turn after a restart still only patches it.
+                const auto object = card.value().toObject();
+                const auto key = object.value(QStringLiteral("key")).toString();
+                qint64 turn = -1;
+                if (key.startsWith(QStringLiteral("turn:"))) {
+                    bool ok = false;
+                    const auto parsed = key.mid(5).toLongLong(&ok);
+                    if (ok)
+                        turn = parsed;
+                }
+                cards_.insert(card.key(), {object, turn});
+            }
         }
     }
 }
@@ -286,7 +302,9 @@ void Composer::reconcile() {
 void Composer::pump() {
     const auto now = clock_.elapsed();
     qint64 next = std::numeric_limits<qint64>::max();
-    for (const auto& id : std::as_const(order_)) {
+    // A runner may finish inside start(), which rebuilds order_: walk a copy.
+    const auto order = order_;
+    for (const auto& id : order) {
         const auto want = wanted_.constFind(id);
         if (want == wanted_.cend() || running_.contains(id))
             continue;

@@ -30,6 +30,8 @@ Item {
     readonly property bool hasFront: front.key !== undefined
     readonly property bool typing: entry.text.length > 0 || entry.inputMethodComposing
     property alias typed: entry.text
+    // The card being typed to stays in front until the text is sent or cleared.
+    onTypingChanged: deck.setDrafting(typing)
     // The key that was just pressed, lit on its keycap for a moment.
     property string flash: ""
     property bool optionHeld: false
@@ -548,8 +550,8 @@ Item {
                 y: 26
                 width: parent.width - 56
                 spacing: 12
-                Text { id: ghostName; color: root.text; font.pixelSize: 18; font.weight: Font.DemiBold }
-                Text { id: ghostLine; width: parent.width; color: "#ffffff"; font.pixelSize: 24; font.weight: Font.Medium; elide: Text.ElideRight }
+                Text { id: ghostName; color: root.text; font.pixelSize: 18; font.weight: Font.DemiBold; textFormat: Text.PlainText }
+                Text { id: ghostLine; width: parent.width; color: "#ffffff"; font.pixelSize: 24; font.weight: Font.Medium; elide: Text.ElideRight; textFormat: Text.PlainText }
             }
             transform: Translate { id: ghostShift }
             ParallelAnimation {
@@ -569,7 +571,9 @@ Item {
             color: "#121a26"
             border.color: "#1fffffff"
             clip: true
-            opacity: root.hasFront ? 1 : 0
+            // The slide animates its own factor so the hasFront binding stays.
+            property real arriveOpacity: 1
+            opacity: (root.hasFront ? 1 : 0) * arriveOpacity
 
             property string shownKey: root.hasFront ? root.front.key : ""
             onShownKeyChanged: if (!reducedMotion && root.hasFront) arrive.restart()
@@ -582,7 +586,7 @@ Item {
                 id: arrive
                 NumberAnimation { target: shift; property: "y"; from: 26; to: 0; duration: root.motion; easing.type: Easing.OutCubic }
                 NumberAnimation { target: grow; properties: "xScale,yScale"; from: 0.95; to: 1; duration: root.motion; easing.type: Easing.OutCubic }
-                NumberAnimation { target: frontCard; property: "opacity"; from: 0.55; to: 1; duration: root.motion; easing.type: Easing.OutCubic }
+                NumberAnimation { target: frontCard; property: "arriveOpacity"; from: 0.55; to: 1; duration: root.motion; easing.type: Easing.OutCubic }
             }
 
             Column {
@@ -878,7 +882,9 @@ Item {
     Timer {
         id: holdToSpeak
         interval: 250
-        onTriggered: deck.setListening(true)
+        // Option-Space puts the overlay away before this fires, and the
+        // Option release then goes to another app: never listen while hidden.
+        onTriggered: if (root.Window.window && root.Window.window.visible) deck.setListening(true)
     }
 
     function light(name) {

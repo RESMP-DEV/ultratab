@@ -110,13 +110,19 @@ QString one_sentence(const QString& text, qsizetype limit) {
     static const QRegularExpression spaces(QStringLiteral("\\s+"));
     static const QRegularExpression end(QStringLiteral("[.!?](\\s|$)"));
     auto line = text;
-    // Markdown the agents write: headings, bold and code ticks.
-    static const QRegularExpression markup(QStringLiteral("[*`#]+|^>\\s*"));
+    // Markdown the agents write: heading and quote markers, bold and code
+    // ticks. "C#", "#12" and "2*3" keep their characters.
+    static const QRegularExpression markup(QStringLiteral("^[ \\t]*(?:#+[ \\t]+|>+[ \\t]*)"),
+                                           QRegularExpression::MultilineOption);
     line.remove(markup);
+    line.remove(QStringLiteral("**"));
+    line.remove(QLatin1Char('`'));
     line = line.replace(spaces, QStringLiteral(" ")).trimmed();
     if (const auto found = end.match(line); found.hasMatch())
         line.truncate(found.capturedStart() + 1);
     if (line.size() > limit) {
+        if (limit < 2)
+            return {};
         auto cut = limit - 1;
         if (line.at(cut - 1).isHighSurrogate())
             --cut;
@@ -155,14 +161,13 @@ void Deck::setPublished(const Published& published) {
                 if (block.type == Block::Type::diagram)
                     svgs.insert(DiagramStore::key_for(block.svg), block.svg);
     diagrams_->replace(std::move(svgs));
-    // Forget answers to cards whose agent is gone; keep the rest so an
-    // answered card stays hidden until the agent has something new.
-    QSet<QString> ids;
-    for (const auto& agent : published_.agents)
-        ids.insert(agent.id);
+    // An answered card stays hidden until the agent has something new, which
+    // comes with a new key; keys no card carries any more are forgotten.
+    QSet<QString> waiting;
+    for (const auto& card : cards_)
+        waiting.insert(card.key);
     for (auto key = answered_.begin(); key != answered_.end();)
-        key = ids.contains(key->section(QLatin1Char('|'), 0, 0)) ? std::next(key)
-                                                                 : answered_.erase(key);
+        key = waiting.contains(*key) ? std::next(key) : answered_.erase(key);
     if (!category_.isEmpty() &&
         std::none_of(published_.categories.cbegin(), published_.categories.cend(),
                      [this](const Category& category) { return category.id == category_; }))
@@ -175,6 +180,14 @@ std::vector<Card> Deck::visible() const {
     for (const auto& card : cards_)
         if (!answered_.contains(card.key) && (category_.isEmpty() || card.category_id == category_))
             shown.push_back(card);
+    // A newer card never takes the front from the one being typed to.
+    if (!drafting_.isEmpty()) {
+        const auto pinned = std::find_if(shown.begin(), shown.end(), [this](const Card& card) {
+            return card.agent_id == drafting_;
+        });
+        if (pinned != shown.end())
+            std::rotate(shown.begin(), pinned, std::next(pinned));
+    }
     return shown;
 }
 
@@ -305,7 +318,9 @@ QString Deck::notice() const {
         return published_.problem.isEmpty() ? QStringLiteral("No agent workspace found.")
                                             : published_.problem;
     if (!published_.has_state)
-        return QStringLiteral("The agent window does not publish its agents' state yet.");
+        return published_.problem.isEmpty()
+                   ? QStringLiteral("The agent window does not publish its agents' state yet.")
+                   : published_.problem;
     if (!running_(published_.writer_pid))
         return QStringLiteral("The agent window is closed; this is what it last showed.");
     return {};
@@ -366,7 +381,31 @@ bool Deck::send(const QString& text) {
     const auto trimmed = text.trimmed();
     if (shown.empty() || shown.front().request || trimmed.isEmpty())
         return false;
+    if (!drafting_.isEmpty() && shown.front().agent_id != drafting_) {
+        // The agent typed to stopped waiting. The text is kept, and stays
+        // unsendable until it is cleared, so it never reaches another agent.
+        message_ = QStringLiteral("That agent is no longer waiting; nothing was sent. "
+                                  "Escape clears the text.");
+        emit changed();
+        return false;
+    }
+    drafting_.clear();
     return answer(shown.front(), QStringLiteral("typed"), trimmed);
+}
+
+void Deck::setDrafting(bool on) {
+    if (!on) {
+        if (!drafting_.isEmpty()) {
+            drafting_.clear();
+            emit changed();
+        }
+        return;
+    }
+    if (!drafting_.isEmpty())
+        return;
+    const auto shown = visible();
+    if (!shown.empty())
+        drafting_ = shown.front().agent_id;
 }
 
 bool Deck::skip() {

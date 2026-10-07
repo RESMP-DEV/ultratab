@@ -13,6 +13,7 @@
 
 #include <QCommandLineParser>
 #include <QCursor>
+#include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -70,10 +71,18 @@ class Overlay final {
         // Clicking elsewhere puts the overlay away, as Spotlight does.
         QObject::connect(&view_, &QWindow::activeChanged, &view_, [this] {
             // Activation lands a moment after show(); losing it in that
-            // window is the launch race, not the person clicking away.
-            if (!view_.isActive() && view_.isVisible() && shown_.isValid() &&
-                shown_.elapsed() > 600)
+            // window may be the launch race, so look again once it has passed.
+            if (view_.isActive() || !view_.isVisible())
+                return;
+            const auto elapsed = shown_.isValid() ? shown_.elapsed() : settle_ms;
+            if (elapsed >= settle_ms) {
                 hide(false);
+                return;
+            }
+            QTimer::singleShot(settle_ms - elapsed, &view_, [this] {
+                if (!view_.isActive() && view_.isVisible())
+                    hide(false);
+            });
         });
         // Dragged by its background: remember where, per screen, once it rests.
         remember_.setSingleShot(true);
@@ -94,6 +103,8 @@ class Overlay final {
         auto* screen = QGuiApplication::screenAt(QCursor::pos());
         if (screen == nullptr)
             screen = QGuiApplication::primaryScreen();
+        if (screen == nullptr)
+            return;
         const auto area = screen->availableGeometry();
         // The window keeps one size per screen; only where it sits changes.
         const QSize size(std::min(1500, area.width() * 82 / 100),
@@ -126,6 +137,7 @@ class Overlay final {
     }
 
   private:
+    static constexpr qint64 settle_ms = 600;
     void moved() {
         if (!placing_ && view_.isVisible())
             remember_.start();

@@ -1,5 +1,6 @@
 #ifndef LAPIS_ULTRATAB_SETTINGS_HPP
 #define LAPIS_ULTRATAB_SETTINGS_HPP
+#include <QByteArray>
 #include <QHash>
 #include <QPoint>
 #include <QRect>

@@ -32,9 +32,11 @@ bool side_matches() {
 }
 
 OSStatus hotkey_pressed(EventHandlerCallRef, EventRef, void*) {
-    if (const auto& handler = hotkey_handler(); handler && side_matches())
+    if (const auto& handler = hotkey_handler(); handler && side_matches()) {
         handler();
-    return noErr;
+        return noErr;
+    }
+    return eventNotHandledErr;
 }
 
 // Carbon virtual key codes for the keys parse_hotkey accepts.
@@ -157,6 +159,8 @@ void become_accessory() { [NSApp setActivationPolicy:NSApplicationActivationPoli
 void activate() {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    // yield() hides the app; activating alone does not unhide it.
+    [NSApp unhide:nil];
     [NSApp activateIgnoringOtherApps:YES];
 #pragma clang diagnostic pop
 }

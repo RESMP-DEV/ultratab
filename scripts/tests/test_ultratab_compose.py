@@ -189,14 +189,14 @@ class ContextTest(Fixture):
 
     def test_a_rotated_log_and_no_log(self):
         log = self.runtime / "interaction.jsonl"
-        log.rename(self.runtime / "interaction.1.jsonl")
+        log.rename(self.runtime / "interaction.jsonl.1")
         write_lines(log, [{"kind": "paste", "session": OTHER, "wall": "x"}])
         self.assertEqual(
             compose.last_look(str(self.runtime), SESSION),
             compose.utc("2026-10-06T12:00:00Z"),
         )
         os.remove(log)
-        os.remove(self.runtime / "interaction.1.jsonl")
+        os.remove(self.runtime / "interaction.jsonl.1")
         bundle = compose.context(self.job, NOW)
         self.assertEqual(bundle["looked"], "")
         self.assertEqual(bundle["since"], "")

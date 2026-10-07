@@ -113,6 +113,9 @@ class Deck final : public QObject {
     // Enter: send typed text to the front card's agent. False when nothing
     // was sent (no card, a request, or empty text).
     Q_INVOKABLE bool send(const QString& text);
+    // Typing started (true) or the text was cleared (false). While a draft
+    // exists its agent's card stays in front, and Return sends only to it.
+    Q_INVOKABLE void setDrafting(bool on);
     // Left arrow or Delete: drop the front card without sending anything.
     Q_INVOKABLE bool skip();
     // Holding the speak key. Voice input is not built yet; this only shows
@@ -157,6 +160,7 @@ class Deck final : public QObject {
     std::deque<Answer> history_;
     quint64 answers_{};
     QString category_; // empty: every category
+    QString drafting_; // the agent a typed draft is for
     QString message_;
     bool listening_{};
     std::function<bool(qint64)> running_;

@@ -174,7 +174,7 @@ def last_look(runtime, session):
         return None
     needle = session.encode()
     budget = LOG_SCAN_BYTES
-    for name in ("interaction.jsonl", "interaction.1.jsonl"):
+    for name in ("interaction.jsonl", "interaction.jsonl.1"):
         path = os.path.join(runtime, name)
         for line in lines_backward(path, budget):
             budget -= len(line) + 1
@@ -551,7 +551,10 @@ def plain(text, limit):
 
 
 def one_line(text, limit=TLDR_CHARS):
-    text = re.sub(r"[*`#]+|^>\s*", "", str(text or ""), flags=re.MULTILINE)
+    # Markdown markup only: heading and quote markers, bold and code ticks.
+    # "C#", "#12" and "2*3" keep their characters.
+    text = re.sub(r"^[ \t]*(?:#+[ \t]+|>+[ \t]*)", "", str(text or ""), flags=re.MULTILINE)
+    text = text.replace("**", "").replace("`", "")
     return plain(re.sub(r"\s+", " ", text), limit)
 
 

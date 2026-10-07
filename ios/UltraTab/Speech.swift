@@ -20,18 +20,27 @@ final class AppleTranscriber: Transcriber {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private let recognizer = SFSpeechRecognizer()
+    // Each start and stop bumps this. A start still waiting for permission,
+    // or a callback from a session already stopped, sees a newer value and
+    // neither opens the microphone nor touches the next session.
+    private var session = 0
 
     func start(text: @escaping @MainActor (String) -> Void,
                failed: @escaping @MainActor (String) -> Void) async {
+        teardown()
+        session += 1
+        let mine = session
         guard await Self.authorized() else {
-            failed("Allow speech recognition and the microphone for Ultra Tab in Settings")
+            if mine == session {
+                failed("Allow speech recognition and the microphone for Ultra Tab in Settings")
+            }
             return
         }
+        guard mine == session else { return }
         guard let recognizer, recognizer.isAvailable else {
             failed("Speech recognition is not available right now")
             return
         }
-        stop()
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
@@ -47,7 +56,7 @@ final class AppleTranscriber: Transcriber {
             engine.prepare()
             try engine.start()
         } catch {
-            stop()
+            teardown()
             failed("The microphone could not start: \(error.localizedDescription)")
             return
         }
@@ -56,7 +65,8 @@ final class AppleTranscriber: Transcriber {
             let heard = result?.bestTranscription.formattedString
             let final = result?.isFinal ?? false
             let problem = error?.localizedDescription
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self, mine == self.session else { return }
                 if let heard { text(heard) }
                 if let problem, heard == nil, !final { failed(problem) }
             }
@@ -64,10 +74,17 @@ final class AppleTranscriber: Transcriber {
     }
 
     func stop() {
+        session += 1
+        teardown()
+    }
+
+    private func teardown() {
         if engine.isRunning {
             engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
         }
+        // Safe without a tap; a tap left by a failed start or an interruption
+        // would make the next installTap raise.
+        engine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
         request = nil
         task?.finish()
