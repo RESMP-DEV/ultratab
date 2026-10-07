@@ -45,6 +45,68 @@ seen yet, then turns that finished unseen and requests, then guesses you have
 seen; within each, the agent that has waited longest first. Agents at work, and
 agents whose state is unknown, are never cards; a pending request always is.
 
+## Composed cards
+
+For each agent that waits on you, Ultra Tab also composes a card meant to put
+you back in that thread in seconds: when you last looked at it and how many
+turns happened since, a one-line summary, and at most three blocks the model
+chooses (a short paragraph, a list, a table when there are numbers to compare,
+a small diagram when structure is the point, or a link to a report the agent
+wrote that you have not opened). Its proposed next message is lapis's guess
+when there is one.
+
+A card is composed when the agent has a newer finished turn or a new guess than
+the card was composed for, after two seconds of quiet, at most two at a time,
+the card in front first. A guess that arrives for a turn already composed only
+replaces the proposed message, with no second model call. While the overlay
+shows, the card in front changes only when what it was composed for changes.
+
+The composer reads the end of the conversation from the transcript Claude Code
+or Codex keeps (as [suggestions](suggestions.md) do, with the same clipping),
+when you last focused, typed or pasted into that agent in lapis (from
+`runtime/interaction.jsonl`, when the interaction log is on), how long the
+agent has waited, its title and category, and the HTML and Markdown files it
+wrote or mentioned since you last looked. It asks the model lapis's suggestions
+use, through the Claude Code CLI on the plan it is signed in to; no API key is
+read. A link is kept only when it names one of those files or a URL the agent
+wrote; a diagram is kept only after scripts, external references and event
+attributes are removed. When composing fails, the card is the agent's last
+message on one line. For an agent on another machine the transcript is not
+read; its card is composed from the reply lapis's guess answers, when there is
+one.
+
+Settings go in `~/.lapis/ultratab.json`:
+
+```json
+{"composer": {"enabled": true, "model": "claude-opus-5-5", "effort": "",
+              "timeoutSeconds": 120}}
+```
+
+`"endpoint": "http://127.0.0.1:8000/v1"` with a `"model"` sends the request to
+a local OpenAI-compatible server (`/chat/completions`) instead, for example a
+local Qwen model. It is off unless set. `"enabled": false` stops composing.
+
+Cards are written to `runtime/ultratab_cards.json` (owner-only, replaced
+atomically, only when a card changes, at most 512 KiB):
+
+```json
+{"v": 1, "cards": {"<agent id>": {
+  "key": "<the guess key, or turn:<ms> for the finished turn>",
+  "composed": "2026-10-07T06:01:45Z", "model": "claude-opus-5-5",
+  "since": "You last looked 3 h ago; 2 turns since",
+  "tldr": "<one line>",
+  "blocks": [{"type": "text", "text": "..."}, {"type": "list", "items": ["..."]},
+             {"type": "table", "columns": ["..."], "rows": [["..."]]},
+             {"type": "diagram", "svg": "<svg viewBox=...>...</svg>"},
+             {"type": "link", "label": "...", "url": "file:///..."}],
+  "prompt": "<the proposed next message>"}}}
+```
+
+Limits: three blocks; text 300 characters; lists 6 items of 120; tables 5
+columns, 8 rows, cells of 60; diagrams 16 KB; link labels 60. Each composition
+is logged to `runtime/ultratab_compose.jsonl` with its time, agent, key,
+duration, model and outcome, never conversation text.
+
 ## Running it
 
 With the desktop build configured ([build](build.md)):
@@ -75,8 +137,10 @@ Options:
 
 ## What it reads and how it answers
 
-Ultra Tab never takes lapis's workspace lock and never writes lapis's files. It
-reads two files in lapis's `runtime/` folder whenever they change:
+Ultra Tab never takes lapis's workspace lock and never writes lapis's files; its
+own files there are named `ultratab_*` (the composed cards, their log and the
+composer's helper in `ultratab_compose/`). It reads two files in lapis's
+`runtime/` folder whenever they change:
 
 - `workspace.json`, the registry: agents, categories, folders and each agent's
   session endpoint and launch.
@@ -100,6 +164,7 @@ not as taken with Tab.
 
 - Voice: holding Option shows the listening state only.
 - History is kept only while Ultra Tab runs; nothing is searchable later.
+- The overlay does not show composed cards yet; they are written for it.
 - The learned Tab order and other ranking beyond lapis's tiers.
 - Answering requests from the deck.
 - A packaged app, a login item and a settings view.

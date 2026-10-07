@@ -2,6 +2,7 @@
 // deck of cards. It reads what lapis publishes and answers an agent by joining
 // its session service, so the lapis window keeps its own attachment. It never
 // takes lapis's workspace lock or writes lapis's files.
+#include "composer.hpp"
 #include "deck.hpp"
 #include "hotkey.hpp"
 #include "overlay_view.hpp"
@@ -22,19 +23,17 @@
 #include <QSurfaceFormat>
 #include <QTextStream>
 #include <algorithm>
+#include <optional>
 
 namespace {
 using namespace lapis::ultratab;
 
-// `hotkey` from <home>/ultratab.json, read only; lapis.json is lapis's own.
-QString configured_hotkey(const QString& home) {
+// <home>/ultratab.json, read only; lapis.json is lapis's own.
+QJsonObject configuration(const QString& home) {
     QFile file(QDir(home).filePath(QStringLiteral("ultratab.json")));
     if (home.isEmpty() || file.size() > qint64{64} * 1024 || !file.open(QIODevice::ReadOnly))
         return {};
-    return QJsonDocument::fromJson(file.readAll())
-        .object()
-        .value(QStringLiteral("hotkey"))
-        .toString();
+    return QJsonDocument::fromJson(file.readAll()).object();
 }
 
 // --list: the deck as text, from the same files, without a window or a key.
@@ -143,8 +142,9 @@ int main(int argc, char** argv) {
 
     const auto home =
         parser.isSet(home_option) ? parser.value(home_option) : lapis::ultratab::lapis_home();
-    auto key_text =
-        parser.isSet(hotkey_option) ? parser.value(hotkey_option) : configured_hotkey(home);
+    const auto config = configuration(home);
+    auto key_text = parser.isSet(hotkey_option) ? parser.value(hotkey_option)
+                                                : config.value(QStringLiteral("hotkey")).toString();
     if (key_text.isEmpty())
         key_text = QString::fromLatin1(default_hotkey);
     const auto hotkey = parse_hotkey(key_text);
@@ -162,6 +162,24 @@ int main(int argc, char** argv) {
     PublishedSource source(home.isEmpty() ? QString()
                                           : QDir(home).filePath(QStringLiteral("runtime")));
     QObject::connect(&source, &PublishedSource::loaded, &deck, &Deck::setPublished);
+
+    // Composed cards: runtime/ultratab_cards.json, beside what lapis publishes.
+    const auto& runtime = source.runtime();
+    const auto helper =
+        runtime.isEmpty()
+            ? QString()
+            : install_compose_helper(QDir(runtime).filePath(QStringLiteral("ultratab_compose")));
+    ProcessComposeRunner runner(find_tool(QStringLiteral("python3")), helper);
+    std::optional<Composer> composer;
+    if (!runtime.isEmpty()) {
+        composer.emplace(
+            runner,
+            Composer::Paths{QDir(runtime).filePath(QStringLiteral("ultratab_cards.json")),
+                            QDir(runtime).filePath(QStringLiteral("ultratab_compose.jsonl")),
+                            runtime, home, find_tool(QStringLiteral("claude"))},
+            parse_composer(config.value(QStringLiteral("composer"))));
+        QObject::connect(&source, &PublishedSource::loaded, &*composer, &Composer::setPublished);
+    }
     source.reload();
 
     QQuickView view;
@@ -170,6 +188,16 @@ int main(int argc, char** argv) {
     if (!load_overlay(view, deck, {}))
         return 1;
     Overlay overlay(view, deck, source);
+    if (composer) {
+        // The card in front keeps its content while the overlay shows it.
+        const auto hold = [&view, &deck, &composer] {
+            composer->setHeld(view.isVisible()
+                                  ? deck.front().value(QStringLiteral("agent")).toString()
+                                  : QString());
+        };
+        QObject::connect(&deck, &Deck::changed, &*composer, hold);
+        QObject::connect(&view, &QWindow::visibleChanged, &*composer, hold);
+    }
     if (!platform::register_hotkey(*hotkey, [&overlay] { overlay.toggle(); }))
         qWarning().noquote() << "Ultra Tab: could not take" << describe(*hotkey)
                              << "; another app may hold it. Use --hotkey.";

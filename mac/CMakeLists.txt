@@ -11,6 +11,7 @@ add_library(lapis_ultratab_core STATIC
     src/published.cpp src/published.hpp
     src/deck.cpp src/deck.hpp
     src/session_sender.cpp src/session_sender.hpp
+    src/composer.cpp src/composer.hpp
     src/hotkey.cpp src/hotkey.hpp
     src/overlay_view.cpp src/overlay_view.hpp
     src/platform_overlay.hpp)
@@ -21,6 +22,13 @@ target_link_libraries(lapis_ultratab_core PRIVATE lapis_project_options
     PUBLIC lapis_local_protocol lapis_session_launch Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick
         Qt6::Network)
 qt_add_resources(lapis_ultratab_core ultratab_qml PREFIX "/ultratab" FILES qml/Overlay.qml)
+# The card composer and the next-prompt helper it imports, written beside
+# each other into runtime/ultratab_compose/ at launch (src/composer.hpp).
+set(ULTRATAB_NEXT_PROMPT "${PROJECT_SOURCE_DIR}/apps/desktop/src/next_prompt.py")
+set_source_files_properties(compose/compose.py PROPERTIES QT_RESOURCE_ALIAS compose.py)
+set_source_files_properties("${ULTRATAB_NEXT_PROMPT}" PROPERTIES QT_RESOURCE_ALIAS next_prompt.py)
+qt_add_resources(lapis_ultratab_core ultratab_compose PREFIX "/ultratab/compose"
+    FILES compose/compose.py "${ULTRATAB_NEXT_PROMPT}")
 
 qt_add_executable(lapis_ultratab MACOSX_BUNDLE src/main.cpp)
 if(APPLE)
@@ -41,6 +49,13 @@ if(BUILD_TESTING)
         lapis_terminal)
     add_test(NAME ultratab COMMAND lapis_ultratab_tests)
     set_tests_properties(ultratab PROPERTIES TIMEOUT 30)
+
+    # When cards are composed, against a fake helper; no model is called.
+    add_executable(lapis_ultratab_composer_tests tests/composer_test.cpp)
+    target_link_libraries(lapis_ultratab_composer_tests PRIVATE lapis_project_options
+        lapis_ultratab_core)
+    add_test(NAME ultratab-composer COMMAND lapis_ultratab_composer_tests)
+    set_tests_properties(ultratab-composer PROPERTIES TIMEOUT 30)
 
     # Loads the overlay offscreen with a fixture and saves a capture to look at.
     add_executable(lapis_ultratab_overlay_tests tests/overlay_test.cpp)
