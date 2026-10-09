@@ -1,9 +1,9 @@
 # Ultra Tab
 
 Ultra Tab is a small standalone app that runs beside lapis. It sits in the
-background with no Dock icon; press its key from any app and a translucent
-overlay deals the agents that need you as a deck of cards: one in front, at most
-one peeking behind. Answer the front card and the next comes forward. lapis
+background with no Dock icon; press its key from any app and a compact command
+bar, about 680 points wide and a fifth of the way down the screen, deals the
+agents that need you as a deck of cards: one at a time in the panel. Answer the card and the next comes forward. lapis
 keeps running as it is; Ultra Tab only reads what lapis publishes and types to
 an agent the way the phone does.
 
@@ -11,9 +11,32 @@ It works from a build of this repository; it is not part of the downloaded app.
 
 ## A card
 
-Each card shows the agent's name, its folder and category, a headline and the
-proposed reply. The top rail lists categories with how many agents wait in each;
-a quiet column on the right names the agents at work, each with a pulsing dot.
+How much each agent needs you is a colour, the same everywhere: red needs
+you (a question, a decision or a permission request), yellow could use a
+nudge (it finished a step and would take direction), green is running and
+needs nothing (background tasks, subagents, a job or another person, or only
+a progress report). Red cards come first, then yellow; green agents are never
+cards. A pending request is always red. The rest come from the composer, which
+reads the end of each conversation and labels the card `needs`, `steer` or
+`fyi`; a card not yet composed is yellow.
+
+The top line is the reply: the agent's CLI as a small glossy tile, ringed in
+its colour, and lapis's guess as grey ghost text, which Tab sends; typing
+replaces it. Each CLI's tile is its own logo on black (Claude Code's is the
+mascot from its welcome screen). Below it the card shows the agent's name, a
+headline and any blocks, and in its corner a small map of lapis: a column per
+category in its colour, a block per agent in strip order, this agent's lit.
+Command-L, or a click on the map, shows that agent in lapis and puts the
+overlay away. The footer holds every agent's tile in its light: red and yellow
+on the left, green on the right; hovering one names it. A sent reply says so
+by leaving; only a refused send, a notice or a hint is written in the footer.
+
+When a card is answered, a copy of it slides off, right with a green edge for
+an accept or a send and left with a red edge for a skip, while the new card's
+content slides up into place under a thin line of its colour and the panel
+eases to its height. The deck has already changed: the
+motion never holds a key back, and Reduce Motion turns it off. Only the panel
+is blurred; the window is as tall as the card.
 
 A plain card's headline is one sentence of what happened (the start of the
 agent's last reply) and its proposed reply is lapis's guess at your next prompt
@@ -28,13 +51,18 @@ light up when pressed:
 | --- | --- |
 | Tab | Accept: send the proposed reply to that agent, as typed and submitted with Return |
 | Hold Option | Speak: shows that it is listening. Voice input is not built yet; type instead |
-| Typing, then Return | Type: start typing anywhere in the overlay; Return sends it to that agent |
+| Typing, then Return | Nudge: start typing anywhere in the overlay; Return sends it to that agent |
+| Command-Return | Push back: opens a larger box with a red edge for a correction (Return is a new line in it); Command-Return sends it as typed, logged as a push back, and Escape returns to the one-line reply |
 | Left arrow or Delete | Skip: the card goes without sending anything and stays in this session's history |
 
 While you are typing, the left arrow moves the cursor, Delete erases and Escape
 clears the text.
 Escape with nothing typed puts the overlay away, as does clicking another app.
-Command-[ and Command-] move through the categories on the rail. Command-O opens
+Drag the panel by its background to move it: it snaps to the screen's center
+line and, by its top edge, to a few heights (near the top, a fifth of the way
+down, centered and the lower third), lighting a gold guide while it does;
+dropped away from them it stays where it is.
+Command-[ and Command-] show one category at a time (all, then each in turn). Command-O opens
 the card's first link and Command-click opens any link, with the system's
 default handler; the card stays. A plain click on a link opens nothing.
 

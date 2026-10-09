@@ -5,10 +5,11 @@
 #include <QHash>
 #include <QWindow>
 #import <ServiceManagement/ServiceManagement.h>
+#include <cmath>
 
 namespace lapis::ultratab::platform {
 namespace {
-constexpr CGFloat kCornerRadius = 18;
+constexpr CGFloat kCornerRadius = 14;
 
 std::function<void()>& hotkey_handler() {
     static std::function<void()> handler;
@@ -73,23 +74,41 @@ UInt32 key_code(const QString& key, bool* known) {
     return *known ? *found : 0;
 }
 
-NSImage* rounded_mask() {
-    const CGFloat side = kCornerRadius * 2 + 1;
+NSImage* rounded_mask(CGFloat radius) {
+    // A radius at or below zero would ask for an empty or negative image, and
+    // an unbounded one for an image larger than any view; both are the panel's
+    // own corner instead.
+    if (radius <= 0 || !std::isfinite(radius))
+        radius = kCornerRadius;
+    const CGFloat side = radius * 2 + 1;
     NSImage* mask = [NSImage imageWithSize:NSMakeSize(side, side)
                                    flipped:NO
                             drawingHandler:^BOOL(NSRect rect) {
                               [NSColor.blackColor set];
                               [[NSBezierPath bezierPathWithRoundedRect:rect
-                                                               xRadius:kCornerRadius
-                                                               yRadius:kCornerRadius] fill];
+                                                               xRadius:radius
+                                                               yRadius:radius] fill];
                               return YES;
                             }];
-    mask.capInsets = NSEdgeInsetsMake(kCornerRadius, kCornerRadius, kCornerRadius, kCornerRadius);
+    mask.capInsets = NSEdgeInsetsMake(radius, radius, radius, radius);
     mask.resizingMode = NSImageResizingModeStretch;
     return mask;
 }
-} // namespace
 
+} // namespace
+} // namespace lapis::ultratab::platform
+
+// Top-left origin, as Qt's window coordinates, so the blur keeps its place
+// at the top while the window grows or shrinks below it.
+@interface UltraTabFlippedView : NSView
+@end
+@implementation UltraTabFlippedView
+- (BOOL)isFlipped {
+    return YES;
+}
+@end
+
+namespace lapis::ultratab::platform {
 bool make_translucent(QWindow& window) {
     // Qt exposes its native NSView through WId; a borrowed view in Qt's window.
     // NOLINTNEXTLINE(performance-no-int-to-ptr)
@@ -103,23 +122,59 @@ bool make_translucent(QWindow& window) {
     // Shown over full-screen apps and on whichever Space is current.
     host.collectionBehavior =
         NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
-    if ([host.contentView isKindOfClass:NSVisualEffectView.class])
+    if ([host.contentView isKindOfClass:UltraTabFlippedView.class])
         return true;
+    UltraTabFlippedView* container =
+        [[[UltraTabFlippedView alloc] initWithFrame:host.contentView.frame] autorelease];
+    // The blur sits under Qt's view and covers only the panel (set_blur_rect).
     NSVisualEffectView* blur =
-        [[[NSVisualEffectView alloc] initWithFrame:host.contentView.frame] autorelease];
+        [[[NSVisualEffectView alloc] initWithFrame:container.bounds] autorelease];
+    // As Raycast's default window: a dark, vibrant blur of what is behind,
+    // active even when another app has the keyboard.
     blur.material = NSVisualEffectMaterialHUDWindow;
     blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
     blur.state = NSVisualEffectStateActive;
-    blur.maskImage = rounded_mask();
-    blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    blur.appearance = [NSAppearance appearanceNamed:NSAppearanceNameVibrantDark];
+    blur.maskImage = rounded_mask(kCornerRadius);
+    blur.identifier = @"ultratab-blur";
     [qt_view retain];
     [qt_view removeFromSuperview];
-    host.contentView = blur;
-    qt_view.frame = blur.bounds;
+    host.contentView = container;
+    // Qt's view resizes with the window; the container has to as well, or both
+    // keep the size the window had when it was installed.
+    container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    [container addSubview:blur];
+    qt_view.frame = container.bounds;
     qt_view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-    [blur addSubview:qt_view];
+    [container addSubview:qt_view];
     [qt_view release];
     return true;
+}
+
+void set_blur_rect(QWindow& window, const QRectF& rect, qreal radius) {
+    // NOLINTNEXTLINE(performance-no-int-to-ptr)
+    auto* qt_view = reinterpret_cast<NSView*>(window.winId());
+    NSVisualEffectView* blur = nil;
+    for (NSView* sibling in qt_view.superview.subviews)
+        if ([sibling.identifier isEqualToString:@"ultratab-blur"] &&
+            [sibling isKindOfClass:NSVisualEffectView.class])
+            blur = static_cast<NSVisualEffectView*>(sibling);
+    if (blur == nil)
+        return;
+    const NSRect frame = NSMakeRect(rect.x(), rect.y(), rect.width(), rect.height());
+    if (!NSEqualRects(blur.frame, frame))
+        blur.frame = frame;
+    // The mask radius is remembered per blur view, not in a file-scope
+    // static: another window's radius must not skip this one.
+    static NSMapTable<NSVisualEffectView*, NSNumber*>* masked =
+        [NSMapTable weakToStrongObjectsMapTable];
+    NSNumber* previous = [masked objectForKey:blur];
+    if (previous == nil || previous.doubleValue != radius) {
+        blur.maskImage = rounded_mask(radius);
+        [masked setObject:@(radius) forKey:blur];
+    }
+    // The shadow follows what is drawn; recompute it for the new shape.
+    [qt_view.window invalidateShadow];
 }
 
 bool register_hotkey(const Hotkey& hotkey, const std::function<void()>& pressed) {
@@ -166,6 +221,24 @@ void activate() {
 }
 
 void yield() { [NSApp hide:nil]; }
+
+void activate_app(const QString& bundle_id) {
+    NSString* identifier = bundle_id.toNSString();
+    NSRunningApplication* running =
+        [NSRunningApplication runningApplicationsWithBundleIdentifier:identifier].firstObject;
+    if (running != nil) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [running activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+#pragma clang diagnostic pop
+        return;
+    }
+    NSURL* app = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:identifier];
+    if (app != nil)
+        [NSWorkspace.sharedWorkspace openApplicationAtURL:app
+                                            configuration:NSWorkspaceOpenConfiguration.configuration
+                                        completionHandler:nil];
+}
 
 bool reduce_motion() { return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion; }
 

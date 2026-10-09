@@ -72,10 +72,12 @@ std::optional<Card> card_for(const Agent& agent, const AgentState& state, int po
     card.folder = folder_label(agent.directory);
     card.category_id = agent.category;
     card.category_name = category_name(published, agent.category);
+    card.harness = agent.harness;
     card.line = what_happened(state);
     card.proposal = request || !state.offer ? QString() : state.offer->text;
     card.request = request;
     card.tier = tier;
+    card.weight = request ? 2 : 1;
     card.needed_at_ms = state.needed_at_ms;
     card.position = position;
     if (const auto composed = published.composed.cards.constFind(agent.id);
@@ -84,6 +86,13 @@ std::optional<Card> card_for(const Agent& agent, const AgentState& state, int po
         card.composed = *composed;
         if (!request && !composed->prompt.isEmpty())
             card.proposal = composed->prompt;
+        // The composer read the conversation: a question or decision needs
+        // the person; a report or work still running in the background
+        // needs nothing. A request always needs them.
+        if (!request && composed->attention == QLatin1String("needs"))
+            card.weight = 2;
+        else if (!request && composed->attention == QLatin1String("fyi"))
+            card.weight = 0;
     }
     return card;
 }
@@ -178,8 +187,14 @@ void Deck::setPublished(const Published& published) {
 std::vector<Card> Deck::visible() const {
     std::vector<Card> shown;
     for (const auto& card : cards_)
-        if (!answered_.contains(card.key) && (category_.isEmpty() || card.category_id == category_))
+        if (card.weight > 0 && !answered_.contains(card.key) &&
+            (category_.isEmpty() || card.category_id == category_))
             shown.push_back(card);
+    // What needs the person first, then what could use a nudge; lapis's own
+    // order within each.
+    std::stable_sort(shown.begin(), shown.end(), [](const Card& left, const Card& right) {
+        return left.weight > right.weight;
+    });
     // A newer card never takes the front from the one being typed to.
     if (!drafting_.isEmpty()) {
         const auto pinned = std::find_if(shown.begin(), shown.end(), [this](const Card& card) {
@@ -239,10 +254,49 @@ QVariantList Deck::describe_blocks(const ComposedCard& composed) {
     return blocks;
 }
 
-QVariantMap Deck::describe(const Card& card) {
+namespace {
+// One letter for the agent's CLI, as its mark on the overlay.
+QString harness_mark(const QString& harness) {
+    if (harness == QLatin1String("codex"))
+        return QStringLiteral("X");
+    if (harness.isEmpty())
+        return QStringLiteral("?");
+    return harness.left(1).toUpper();
+}
+} // namespace
+
+int Deck::hue(const Card& card) const {
+    if (card.request)
+        return -1;
+    for (qsizetype index = 0; index < published_.categories.size(); ++index)
+        if (published_.categories.at(index).id == card.category_id)
+            return static_cast<int>(index);
+    return 0;
+}
+
+QVariantList Deck::queue() const {
+    const auto shown = visible();
+    QVariantList marks;
+    for (std::size_t index = 1; index < shown.size() && marks.size() < queue_limit; ++index) {
+        const auto& card = shown.at(index);
+        marks.append(QVariantMap{{QStringLiteral("key"), card.key},
+                                 {QStringLiteral("mark"), harness_mark(card.harness)},
+                                 {QStringLiteral("harness"), card.harness},
+                                 {QStringLiteral("weight"), card.weight},
+                                 {QStringLiteral("hue"), hue(card)},
+                                 {QStringLiteral("request"), card.request}});
+    }
+    return marks;
+}
+
+QVariantMap Deck::describe(const Card& card) const {
     const auto& composed = card.composed;
     const auto headline = composed && !composed->tldr.isEmpty() ? composed->tldr : card.line;
     return {{QStringLiteral("key"), card.key},
+            {QStringLiteral("mark"), harness_mark(card.harness)},
+            {QStringLiteral("harness"), card.harness},
+            {QStringLiteral("weight"), card.weight},
+            {QStringLiteral("hue"), hue(card)},
             {QStringLiteral("composed"), composed.has_value()},
             {QStringLiteral("since"), composed ? composed->since : QString()},
             {QStringLiteral("headline"), headline},
@@ -286,6 +340,77 @@ QVariantList Deck::rail() const {
                                 {QStringLiteral("count"), counts.value(category.id)},
                                 {QStringLiteral("selected"), category.id == category_}});
     return rail;
+}
+
+QVariantMap Deck::groups() const {
+    const auto shown = visible();
+    const auto front = shown.empty() ? QString() : shown.front().key;
+    QVariantList needs;
+    QVariantList steer;
+    QVariantList running;
+    const auto entry = [&front](const QString& harness, const QString& name, const QString& key) {
+        return QVariantMap{{QStringLiteral("harness"), harness},
+                           {QStringLiteral("name"), name},
+                           {QStringLiteral("key"), key},
+                           {QStringLiteral("front"), !key.isEmpty() && key == front}};
+    };
+    for (const auto& card : shown)
+        (card.weight >= 2 ? needs : steer).append(entry(card.harness, card.name, card.key));
+    // Reports and background work the composer judged need nothing, then
+    // agents at work.
+    // Scoped like needs and steer: a category filter that kept other categories
+    // out of the red and yellow lights must not leak them into the green one.
+    const auto in_category = [this](const QString& category) {
+        return category_.isEmpty() || category == category_;
+    };
+    for (const auto& card : cards_)
+        if (card.weight == 0 && !answered_.contains(card.key) && in_category(card.category_id))
+            running.append(entry(card.harness, card.name, {}));
+    for (const auto& agent : published_.agents)
+        if (published_.states.value(agent.id).status == QLatin1String("working") &&
+            in_category(agent.category))
+            running.append(
+                entry(agent.harness,
+                      agent.title.isEmpty() ? folder_label(agent.directory) : agent.title, {}));
+    return {{QStringLiteral("needs"), needs},
+            {QStringLiteral("steer"), steer},
+            {QStringLiteral("running"), running}};
+}
+
+QVariantList Deck::map() const {
+    const auto shown = visible();
+    const auto front = shown.empty() ? QString() : shown.front().agent_id;
+    QVariantList columns;
+    for (qsizetype index = 0; index < published_.categories.size(); ++index) {
+        const auto& category = published_.categories.at(index);
+        QVariantList places;
+        for (const auto& agent : published_.agents) {
+            if (agent.category != category.id)
+                continue;
+            const bool lit = agent.id == front;
+            if (places.size() < map_slots)
+                places.append(
+                    QVariantMap{{QStringLiteral("agent"), agent.id}, {QStringLiteral("lit"), lit}});
+            else if (lit)
+                // The column shows one slot per agent up to the cap; the card
+                // being answered past that still shows where it sits.
+                places.last() =
+                    QVariantMap{{QStringLiteral("agent"), agent.id}, {QStringLiteral("lit"), true}};
+        }
+        if (!places.isEmpty())
+            columns.append(QVariantMap{{QStringLiteral("id"), category.id},
+                                       {QStringLiteral("hue"), static_cast<int>(index)},
+                                       {QStringLiteral("slots"), places}});
+    }
+    return columns;
+}
+
+bool Deck::openInLapis() {
+    const auto shown = visible();
+    if (shown.empty() || !lapis_opener_)
+        return false;
+    lapis_opener_(shown.front().agent_id);
+    return true;
 }
 
 QVariantList Deck::running() const {
@@ -418,6 +543,25 @@ void Deck::setDrafting(bool on) {
     const auto shown = visible();
     if (!shown.empty())
         drafting_ = shown.front().agent_id;
+}
+
+bool Deck::pushBack(const QString& text) {
+    const auto shown = visible();
+    const auto trimmed = text.trimmed();
+    if (shown.empty() || shown.front().request || trimmed.isEmpty())
+        return false;
+    // A correction belongs to the agent the draft was pinned to, exactly as
+    // send() checks. The box stays open across polls, so that agent can stop
+    // waiting while it is open; without this the text reaches whoever is now
+    // in front.
+    if (!drafting_.isEmpty() && shown.front().agent_id != drafting_) {
+        message_ = QStringLiteral("That agent is no longer waiting; nothing was sent. "
+                                  "Escape clears the text.");
+        emit changed();
+        return false;
+    }
+    drafting_.clear();
+    return answer(shown.front(), QStringLiteral("pushback"), trimmed);
 }
 
 bool Deck::skip() {

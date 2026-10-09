@@ -21,7 +21,9 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPropertyAnimation>
 #include <QQuickView>
+#include <QSaveFile>
 #include <QScreen>
 #include <QSurfaceFormat>
 #include <QTextStream>
@@ -132,6 +134,15 @@ class Overlay final {
                     hide(false);
             });
         });
+        if (auto* host = view_.findChild<OverlayHost*>()) {
+            QObject::connect(host, &OverlayHost::contentSizeChanged, &view_,
+                             [this] { follow_content(); });
+            QObject::connect(host, &OverlayHost::panelChanged, &view_, [this] { follow_panel(); });
+            QObject::connect(host, &OverlayHost::dragRequested, &view_,
+                             [this, host](QPoint to, bool done) { drag(*host, to, done); });
+        }
+        fade_.setDuration(110);
+        fade_.setEasingCurve(QEasingCurve::OutCubic);
         // Dragged by its background: remember where, per screen, once it rests.
         remember_.setSingleShot(true);
         remember_.setInterval(400);
@@ -148,15 +159,20 @@ class Overlay final {
             show();
     }
     void show() {
+        // The deck is read before the first frame, and the card's own motion
+        // is held back: opening is one short fade of the whole window.
+        if (auto* host = view_.findChild<OverlayHost*>())
+            emit host->appearing();
+        source_.reload();
         auto* screen = QGuiApplication::screenAt(QCursor::pos());
         if (screen == nullptr)
             screen = QGuiApplication::primaryScreen();
         if (screen == nullptr)
             return;
         const auto area = screen->availableGeometry();
-        // The window keeps one size per screen; only where it sits changes.
-        const QSize size(std::min(1500, area.width() * 82 / 100),
-                         std::min(900, area.height() * 84 / 100));
+        // As large as the panel and its peeking cards; it grows and shrinks
+        // with the card from its top edge.
+        const QSize size = wanted_size(area);
         const auto key = screen_key(screen->name(), screen->geometry());
         const auto saved = positions_.constFind(key);
         placing_ = true;
@@ -164,12 +180,20 @@ class Overlay final {
             area, size, saved == positions_.cend() ? std::nullopt : std::optional<QPoint>(*saved)));
         placing_ = false;
         shown_.start();
+        if (!reduce_motion_) {
+            view_.setOpacity(0.0);
+            fade_.stop();
+            fade_.setStartValue(0.0);
+            fade_.setEndValue(1.0);
+        }
         view_.show();
         if (!translucent_)
             translucent_ = platform::make_translucent(view_);
+        follow_panel();
         platform::activate();
         view_.requestActivate();
-        source_.reload();
+        if (!reduce_motion_)
+            fade_.start();
         source_.setPolling(true);
     }
     void hide(bool give_back) {
@@ -186,6 +210,59 @@ class Overlay final {
 
   private:
     static constexpr qint64 settle_ms = 600;
+    [[nodiscard]] QSize wanted_size(const QRect& area) const {
+        auto* host = view_.findChild<OverlayHost*>();
+        const auto wanted = host != nullptr && host->contentSize().isValid() ? host->contentSize()
+                                                                             : QSize(720, 400);
+        // Overlay.qml budgets 0.7 of the screen for the panel and adds about 56
+        // points of chrome around it, so a 3/4 cap cut the bottom edge off on
+        // every screen shorter than roughly 1120 points. Bound against the
+        // available area instead and keep the whole content on screen.
+        return wanted.boundedTo({area.width(), area.height()});
+    }
+    void follow_content() {
+        auto* screen = view_.screen();
+        if (screen == nullptr || !view_.isVisible())
+            return;
+        const auto area = screen->availableGeometry();
+        const auto size = wanted_size(area);
+        // A taller card grows the window from its top-left, and a dragged
+        // position is remembered, so the window can end up past the bottom of
+        // the screen. Clamp where it is: place_window's full reset would jump
+        // the panel back to the default spot.
+        const int lowest = std::max(area.top(), area.bottom() - size.height() + 1);
+        const int rightmost = std::max(area.left(), area.right() - size.width() + 1);
+        const QPoint where(std::clamp(view_.x(), area.left(), rightmost),
+                           std::clamp(view_.y(), area.top(), lowest));
+        if (size == view_.size() && where == view_.position())
+            return;
+        placing_ = true;
+        if (size != view_.size())
+            view_.resize(size);
+        if (where != view_.position())
+            view_.setPosition(where);
+        placing_ = false;
+    }
+    // The panel dragged by its background: the window follows the pointer and
+    // snaps to the screen's center line and set heights (snap_window).
+    void drag(OverlayHost& host, QPoint to, bool done) {
+        auto* screen = QGuiApplication::screenAt(to + QPoint(view_.width() / 2, 40));
+        if (screen == nullptr)
+            screen = view_.screen();
+        if (screen == nullptr)
+            return;
+        const auto snap = snap_window(screen->availableGeometry(), view_.size(),
+                                      static_cast<int>(host.panel().y()),
+                                      static_cast<int>(host.panel().height()), to);
+        view_.setPosition(snap.position);
+        host.setSnap(snap.centered && !done, snap.level && !done);
+        if (done)
+            remember();
+    }
+    void follow_panel() {
+        if (auto* host = view_.findChild<OverlayHost*>(); host != nullptr && translucent_)
+            platform::set_blur_rect(view_, host->panel(), host->radius());
+    }
     void moved() {
         if (!placing_ && view_.isVisible())
             remember_.start();
@@ -206,6 +283,9 @@ class Overlay final {
     bool placing_{};
     bool translucent_{};
     QElapsedTimer shown_;
+    const bool reduce_motion_ = platform::reduce_motion();
+    // Opening: the whole window, blur included, fades in.
+    QPropertyAnimation fade_{&view_, "opacity"};
 };
 } // namespace
 
@@ -256,6 +336,23 @@ int main(int argc, char** argv) {
     PublishedSource source(home.isEmpty() ? QString()
                                           : QDir(home).filePath(QStringLiteral("runtime")));
     QObject::connect(&source, &PublishedSource::loaded, &deck, &Deck::setPublished);
+    // Command-L: lapis shows that agent. The window watches this request
+    // beside its registry; Ultra Tab then brings lapis forward.
+    if (!source.runtime().isEmpty())
+        deck.setLapisOpener(
+            [path = QDir(source.runtime()).filePath(QStringLiteral("ultratab_open.json"))](
+                const QString& agent) {
+                QSaveFile file(path);
+                if (file.open(QIODevice::WriteOnly)) {
+                    file.write(QJsonDocument(QJsonObject{{QStringLiteral("agent"), agent},
+                                                         {QStringLiteral("atMs"),
+                                                          QDateTime::currentMSecsSinceEpoch()}})
+                                   .toJson(QJsonDocument::Compact));
+                    file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+                    file.commit();
+                }
+                platform::activate_app(QStringLiteral("dev.lapis.desktop"));
+            });
     if (!source.runtime().isEmpty())
         deck.setAnswerLog(
             [path = QDir(source.runtime()).filePath(QStringLiteral("ultratab_answers.jsonl"))](

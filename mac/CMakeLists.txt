@@ -23,7 +23,8 @@ target_include_directories(lapis_ultratab_core PRIVATE "${PROJECT_SOURCE_DIR}/ap
 target_link_libraries(lapis_ultratab_core PRIVATE lapis_project_options
     PUBLIC lapis_local_protocol lapis_session_launch Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick
         Qt6::Network Qt6::Svg)
-qt_add_resources(lapis_ultratab_core ultratab_qml PREFIX "/ultratab" FILES qml/Overlay.qml)
+qt_add_resources(lapis_ultratab_core ultratab_qml PREFIX "/ultratab"
+                 FILES qml/Overlay.qml qml/HarnessTile.qml)
 # The card composer and the next-prompt helper it imports, written beside
 # each other into runtime/ultratab_compose/ at launch (src/composer.hpp).
 set(ULTRATAB_NEXT_PROMPT "${PROJECT_SOURCE_DIR}/apps/desktop/src/next_prompt.py")

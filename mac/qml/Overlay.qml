@@ -1,34 +1,61 @@
 import QtQuick
 
-// Ultra Tab's overlay: a deck of agents that need you, one card in front and
-// at most one peeking behind. Every card takes the same four answers: Tab
-// accepts the proposed reply, holding Option speaks (a placeholder for now),
-// typing anywhere then Return sends what you typed, and the left arrow or Delete skips.
-// A composed card adds a headline and up to three blocks (text, list, table,
-// diagram, link). Input is never deferred for motion: the deck changes at
-// once and the short slide only follows it.
-// Context: `deck` (Deck), `backdrop` (draw a stand-in for the blurred desktop,
+// Ultra Tab's overlay: a compact command bar for the agents that need you.
+// The top line is the reply: lapis's guess shows as ghost text that Tab
+// sends, and typing replaces it (Return sends). The card below says what
+// happened, and the footer's lights show every agent by how much it needs
+// you. Every card takes the same four answers: Tab accepts, holding Option
+// speaks (a placeholder for now), typing then Return sends, and the left
+// arrow or Delete skips. Input is never deferred for motion: the deck changes
+// at once and the animation only follows it.
+// Context: `deck` (Deck), `host` (OverlayHost: where the window puts the blur
+// and how large it is), `backdrop` (draw a stand-in for the blurred desktop,
 // for captures), `reducedMotion`.
 Item {
     id: root
     objectName: "overlay"
-    width: 1280
-    height: 760
+    width: 720
+    height: 560
 
-    readonly property color dim: "#8592a6"
-    readonly property color faint: "#5b6678"
-    readonly property color text: "#dfe6f0"
-    readonly property color body: "#c6d2e4"
-    readonly property color lapisBlue: "#4a86ff"
+    readonly property color dim: "#8a93a3"
+    readonly property color faint: "#5f6878"
+    readonly property color text: "#e9edf3"
+    readonly property color body: "#b9c2cf"
+    readonly property color lapisBlue: "#5b8cff"
     readonly property color lapisDeep: "#1d3f8a"
     readonly property color gold: "#e8b931"
-    readonly property color violet: "#c77dff"
+    readonly property color green: "#3ecf8e"
+    readonly property color red: "#ef6b5b"
+    readonly property color violet: "#a77bff"
     readonly property string mono: "Menlo"
-    readonly property int motion: reducedMotion ? 0 : 180
+    // Category colours by the category's place; a request is red.
+    readonly property var hues: ["#e8b931", "#5b8cff", "#a77bff", "#2ec4b6", "#f472b6", "#f59e0b"]
+    function hueColor(hue) { return hue < 0 ? red : hues[hue % hues.length] }
+    // How much a card needs the person, the same everywhere: red needs you,
+    // yellow could use a nudge, green is running and needs nothing.
+    readonly property color needsColor: "#ef5b4f"
+    readonly property color steerColor: "#f2c230"
+    readonly property color runningColor: "#3ecf8e"
+    function weightColor(weight) { return weight >= 2 ? needsColor : weight === 1 ? steerColor : runningColor }
+    // Command-Return: a push back, written in the larger box below the card.
+    property bool pushing: false
+    onPushingChanged: {
+        if (pushing) {
+            pushText.text = entry.text
+            entry.text = ""
+            pushText.forceActiveFocus()
+            pushText.cursorPosition = pushText.length
+        } else {
+            entry.forceActiveFocus()
+        }
+    }
+
+    readonly property int motion: reducedMotion ? 0 : 200
     readonly property var front: deck.front
-    readonly property var behind: deck.behind
+    readonly property var queue: deck.queue
     readonly property bool hasFront: front.key !== undefined
     readonly property bool typing: entry.text.length > 0 || entry.inputMethodComposing
+                                   || pushing
     property alias typed: entry.text
     // The card being typed to stays in front until the text is sent or cleared.
     onTypingChanged: deck.setDrafting(typing)
@@ -50,11 +77,75 @@ Item {
         }
     }
 
+    // The panel; the window is as large as it and the blur covers it only.
+    readonly property int panelWidth: Math.min(680, width - 40)
+    // The screen bounds the card, never the window, which follows the card.
+    // desktopAvailableHeight is the whole virtual desktop, so beside a taller
+    // display this laid the card out to a height the window cannot show; the
+    // window follows the card, so size both from the screen this one is on.
+    readonly property real tallest: {
+        const screen = Screen.height > 0 ? Screen.height : 1000
+        // Chrome around the panel: panel.y, the peeking edges and the bottom
+        // margin, about 56 points in all.
+        return Math.max(220, screen - 56)
+    }
+    // Grows with the card at once; shrinks only after the motion, so the
+    // window never cuts the card while it animates.
+    property real windowPanelHeight: panel.targetHeight
+    Connections {
+        target: panel
+        function onTargetHeightChanged() {
+            if (root.settling || panel.targetHeight >= root.windowPanelHeight)
+                root.windowPanelHeight = panel.targetHeight
+            else
+                shrinkLater.restart()
+        }
+    }
+    Timer {
+        id: shrinkLater
+        interval: root.motion + 60
+        onTriggered: root.windowPanelHeight = panel.targetHeight
+    }
+    readonly property int contentHeight: Math.ceil(panel.y + windowPanelHeight + 24)
+    onContentHeightChanged: tellHost()
+    Component.onCompleted: tellHost()
+    function tellHost() {
+        if (typeof host === "undefined" || host === null)
+            return
+        host.setContentSize(720, contentHeight)
+        host.setPanel(Qt.rect(panel.x, panel.y, panel.width, panel.height), panel.radius)
+    }
+
+    // Opening: everything settles where it belongs with no card motion; the
+    // window fades in as a whole. Answers after that animate as usual.
+    property bool settling: false
+    Connections {
+        target: typeof host !== "undefined" ? host : null
+        ignoreUnknownSignals: true
+        function onAppearing() {
+            root.settling = true
+            arrive.stop()
+            leave.stop()
+            ghost.opacity = 0
+            arrivalLine.opacity = 0
+            glow.opacity = 0
+            frontBody.opacity = 1
+            arriveShift.y = 0
+            root.windowPanelHeight = panel.targetHeight
+            settled.restart()
+        }
+    }
+    Timer {
+        id: settled
+        interval: 200
+        onTriggered: root.settling = false
+    }
+
     // Captures only: what the real window's blur would show through.
     Rectangle {
         anchors.fill: parent
+        z: -10
         visible: backdrop
-        radius: 18
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0.0; color: "#2a2147" }
@@ -63,168 +154,61 @@ Item {
         }
     }
 
-    Rectangle {
-        id: glass
-        anchors.fill: parent
-        radius: 18
-        color: Qt.rgba(10 / 255, 14 / 255, 21 / 255, 0.74)
-        border.color: "#1fffffff"
-        border.width: 1
-    }
-
-    // The window moves when its background is dragged; it never resizes.
-    MouseArea {
-        objectName: "dragArea"
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton
-        onPressed: (mouse) => {
-            const window = root.Window.window
-            if (window)
-                window.startSystemMove()
-            mouse.accepted = true
-        }
-    }
-
-    component Keycap: Item {
+    component Keycap: Rectangle {
         id: cap
         property string glyph
         property bool lit: false
-        property bool available: true
-        property color accent: root.lapisBlue
-        property int glyphSize: 17
-        property bool small: false
-        readonly property int capHeight: small ? 22 : 34
-        implicitWidth: Math.max(capHeight, glyphText.implicitWidth + (small ? 12 : 22))
-        implicitHeight: capHeight + 2
-        opacity: available ? 1 : 0.38
-        // The lip under the keycap; the face sinks onto it when pressed.
-        Rectangle {
-            anchors.fill: parent
-            anchors.topMargin: 2
-            radius: cap.small ? 5 : 8
-            color: cap.lit ? Qt.darker(cap.accent, 2.4) : "#07090d"
-        }
-        Rectangle {
-            id: face
-            width: parent.width
-            height: cap.capHeight
-            y: cap.lit ? 2 : 0
-            radius: cap.small ? 5 : 8
-            border.width: 1
-            border.color: cap.lit ? cap.accent : "#343c4b"
-            gradient: Gradient {
-                GradientStop { position: 0; color: cap.lit ? Qt.darker(cap.accent, 1.9) : "#262d3a" }
-                GradientStop { position: 1; color: cap.lit ? Qt.darker(cap.accent, 2.6) : "#171c25" }
-            }
-            Behavior on y { NumberAnimation { duration: reducedMotion ? 0 : 60 } }
-            Text {
-                id: glyphText
-                anchors.centerIn: parent
-                text: cap.glyph
-                color: cap.lit ? "#ffffff" : cap.accent
-                font.pixelSize: cap.glyphSize
-                font.weight: Font.DemiBold
-            }
-        }
-        // A soft glow while lit.
-        Rectangle {
-            anchors.fill: face
-            anchors.margins: -3
-            radius: face.radius + 3
-            color: "transparent"
-            border.width: 2
-            border.color: Qt.rgba(cap.accent.r, cap.accent.g, cap.accent.b, 0.35)
-            visible: cap.lit && !cap.small
-        }
-    }
-
-    // Categories, with how many wait in each.
-    Row {
-        id: rail
-        objectName: "rail"
-        x: 26
-        y: 20
-        spacing: 8
-        Repeater {
-            model: deck.rail
-            delegate: Rectangle {
-                required property var modelData
-                radius: 13
-                height: 28
-                width: pill.implicitWidth + 24
-                color: modelData.selected ? "#16ffffff" : "transparent"
-                border.color: modelData.selected ? "#22ffffff" : "transparent"
-                Row {
-                    id: pill
-                    anchors.centerIn: parent
-                    spacing: 7
-                    Text {
-                        text: modelData.name
-                        color: modelData.selected ? "#ffffff" : root.dim
-                        font.pixelSize: 14
-                    }
-                    Text {
-                        visible: modelData.count > 0
-                        text: modelData.count
-                        color: root.gold
-                        font.pixelSize: 14
-                        font.weight: Font.DemiBold
-                    }
-                }
-            }
-        }
-        Row {
-            spacing: 4
-            anchors.verticalCenter: parent.verticalCenter
-            leftPadding: 10
-            Keycap { glyph: "⌘["; small: true; glyphSize: 11; accent: root.dim; anchors.verticalCenter: parent.verticalCenter }
-            Keycap { glyph: "⌘]"; small: true; glyphSize: 11; accent: root.dim; anchors.verticalCenter: parent.verticalCenter }
-        }
-    }
-
-    // Agents at work, by name only.
-    Column {
-        id: side
-        objectName: "running"
-        anchors.right: parent.right
-        anchors.rightMargin: 26
-        y: 86
-        width: Math.min(210, parent.width * 0.15)
-        spacing: 10
+        property color accent: root.dim
+        property int glyphSize: 11
+        implicitWidth: Math.max(22, glyphText.implicitWidth + 10)
+        implicitHeight: 20
+        radius: 5
+        color: lit ? Qt.rgba(accent.r, accent.g, accent.b, 0.28) : "#14ffffff"
+        border.color: lit ? accent : "#1fffffff"
+        Behavior on color { ColorAnimation { duration: reducedMotion ? 0 : 90 } }
         Text {
-            visible: deck.running.length > 0
-            text: "at work"
-            color: root.faint
-            font.pixelSize: 12
-            font.letterSpacing: 0.6
+            id: glyphText
+            anchors.centerIn: parent
+            text: cap.glyph
+            color: cap.lit ? "#ffffff" : "#cfd6e2"
+            font.pixelSize: cap.glyphSize
+            font.weight: Font.DemiBold
         }
-        Repeater {
-            model: deck.running
-            delegate: Row {
-                required property var modelData
-                spacing: 9
-                width: side.width
-                Rectangle {
-                    id: pulse
-                    visible: !modelData.more
-                    width: 7
-                    height: 7
-                    radius: 3.5
+    }
+
+    // The agents in one light of the footer, each as its CLI's tile in that
+    // light's colour; hovering one names it.
+    component Light: Rectangle {
+        id: light
+        property var agents: []
+        property color tint
+        property string name
+        objectName: name
+        visible: agents.length > 0
+        height: 28
+        width: lights.implicitWidth + 12
+        radius: 14
+        color: Qt.rgba(tint.r, tint.g, tint.b, 0.08)
+        border.color: Qt.rgba(tint.r, tint.g, tint.b, 0.35)
+        Row {
+            id: lights
+            x: 6
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: 6
+            Repeater {
+                model: light.agents
+                delegate: HarnessTile {
+                    required property var modelData
                     anchors.verticalCenter: parent.verticalCenter
-                    color: root.lapisBlue
-                    SequentialAnimation on opacity {
-                        running: !reducedMotion && pulse.visible
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.3; duration: 800; easing.type: Easing.InOutSine }
-                        NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutSine }
+                    size: modelData.front ? 20 : 18
+                    harness: modelData.harness
+                    ring: light.tint
+                    opacity: modelData.front || light.name === "runningLight" ? 1 : 0.8
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onEntered: root.hint = modelData.name
                     }
-                }
-                Text {
-                    width: side.width - 16
-                    text: modelData.name
-                    color: root.dim
-                    font.pixelSize: 13
-                    elide: Text.ElideRight
                 }
             }
         }
@@ -233,7 +217,7 @@ Item {
     component Paragraph: Text {
         width: parent ? parent.width : 0
         color: root.body
-        font.pixelSize: 15
+        font.pixelSize: 14
         lineHeight: 1.3
         wrapMode: Text.Wrap
         maximumLineCount: 5
@@ -265,7 +249,7 @@ Item {
                     width: parent.width - 18
                     text: modelData
                     color: root.body
-                    font.pixelSize: 15
+                    font.pixelSize: 14
                     lineHeight: 1.25
                     wrapMode: Text.Wrap
                     maximumLineCount: 2
@@ -461,9 +445,7 @@ Item {
                 visible: chip.block.index === 0
                 anchors.verticalCenter: parent.verticalCenter
                 glyph: "⌘O"
-                small: true
-                glyphSize: 11
-                accent: root.dim
+                glyphSize: 10
             }
         }
         // Command-click opens it; a plain click only says how.
@@ -480,379 +462,500 @@ Item {
     }
     property string hint: ""
 
-    Item {
-        id: deckArea
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 74
-        width: Math.min(parent.width * 0.58, 820)
-        height: hints.y - y - 40
+    // What happened on one card: its agent, the headline and the blocks.
+    // The leaving copy draws a frozen card with the same component.
+    component CardBody: Column {
+        id: cardBody
+        property var card: ({})
+        readonly property bool shown: card.key !== undefined
+        spacing: 10
+        Text {
+            objectName: cardBody.objectName === "frontBody" ? "agentName" : ""
+            width: parent.width
+            text: cardBody.shown ? cardBody.card.name : ""
+            color: root.dim
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+            elide: Text.ElideRight
+            textFormat: Text.PlainText
+        }
+        Text {
+            objectName: cardBody.objectName === "frontBody" ? "line" : ""
+            width: parent.width
+            text: cardBody.shown ? cardBody.card.headline : ""
+            color: "#ffffff"
+            font.pixelSize: 18
+            font.weight: Font.DemiBold
+            wrapMode: Text.Wrap
+            maximumLineCount: 3
+            elide: Text.ElideRight
+            lineHeight: 1.15
+            textFormat: Text.PlainText
+        }
+        Column {
+            id: blocks
+            objectName: cardBody.objectName === "frontBody" ? "blocks" : ""
+            width: parent.width
+            spacing: 10
+            visible: cardBody.shown && cardBody.card.blocks.length > 0
+            Repeater {
+                model: cardBody.shown ? cardBody.card.blocks : []
+                delegate: Loader {
+                    required property var modelData
+                    width: blocks.width
+                    sourceComponent: modelData.type === "text" ? textBlock
+                                   : modelData.type === "list" ? listBlock
+                                   : modelData.type === "table" ? tableBlock
+                                   : modelData.type === "diagram" ? diagramBlock
+                                   : linkBlock
+                    property var block: modelData
+                }
+            }
+            Component { id: textBlock; Paragraph { objectName: "textBlock"; text: parent.block.text } }
+            Component { id: listBlock; ListBlock { objectName: "listBlock"; width: parent.width; block: parent.block } }
+            Component { id: tableBlock; TableBlock { objectName: "tableBlock"; width: parent.width; block: parent.block } }
+            Component { id: diagramBlock; DiagramBlock { objectName: "diagramBlock"; width: parent.width; block: parent.block } }
+            Component { id: linkBlock; Item { width: parent.width; implicitHeight: 30; LinkChip { block: parent.parent.block } } }
+        }
+    }
+
+    Rectangle {
+        id: panel
+        objectName: "panel"
+        x: (root.width - width) / 2
+        y: 12
+        width: root.panelWidth
+        // The card's own height; the panel follows it with a short ease.
+        readonly property real targetHeight: Math.min(column.implicitHeight, root.tallest)
+        height: targetHeight
+        Behavior on height {
+            enabled: !reducedMotion && !root.settling
+            NumberAnimation { duration: root.motion; easing.type: Easing.OutCubic }
+        }
+        onHeightChanged: root.tellHost()
+        onWidthChanged: root.tellHost()
+        onXChanged: root.tellHost()
+        radius: 14
+        // A dark, mostly opaque tint over the window's blur, as Raycast's
+        // default: the desktop shows only as a faint softened glow.
+        color: Qt.rgba(22 / 255, 23 / 255, 28 / 255, 0.90)
+        border.width: root.pushing ? 1.5 : 1
+        border.color: root.pushing ? Qt.rgba(239 / 255, 91 / 255, 79 / 255, 0.6) : "#17ffffff"
+        clip: true
+
+        // The answer's colour, flashing on the edge as the card leaves.
+        Rectangle {
+            id: glow
+            anchors.fill: parent
+            radius: parent.radius
+            color: "transparent"
+            border.width: 1.5
+            border.color: root.green
+            opacity: 0
+        }
+        // The incoming agent's colour along the top, fading as it settles.
+        Rectangle {
+            id: arrivalLine
+            width: parent.width
+            height: 2
+            color: root.gold
+            opacity: 0
+        }
+
+        // The window moves when the panel's background is dragged, snapping
+        // to the screen's center line and a few heights (host.dragTo).
+        MouseArea {
+            objectName: "dragArea"
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            property point grab
+            onPressed: (mouse) => {
+                const window = root.Window.window
+                const at = mapToGlobal(mouse.x, mouse.y)
+                if (window)
+                    grab = Qt.point(at.x - window.x, at.y - window.y)
+                mouse.accepted = true
+            }
+            onPositionChanged: (mouse) => {
+                if (!pressed || typeof host === "undefined" || host === null)
+                    return
+                const at = mapToGlobal(mouse.x, mouse.y)
+                host.dragTo(Math.round(at.x - grab.x), Math.round(at.y - grab.y), false)
+            }
+            onReleased: (mouse) => {
+                if (typeof host === "undefined" || host === null)
+                    return
+                const window = root.Window.window
+                if (window)
+                    host.dragTo(window.x, window.y, true)
+            }
+        }
+        // The guides while dragging: the center line, and the panel's edge
+        // when it sits at one of the set heights.
+        Rectangle {
+            objectName: "centerGuide"
+            visible: typeof host !== "undefined" && host !== null && host.dragging && host.centered
+            x: parent.width / 2 - 0.5
+            width: 1
+            height: parent.height
+            color: root.gold
+            opacity: 0.8
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: parent.radius
+            color: "transparent"
+            border.width: 1.5
+            border.color: root.gold
+            visible: typeof host !== "undefined" && host !== null && host.dragging && host.level
+        }
 
         Column {
-            objectName: "empty"
-            visible: !root.hasFront
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 80
-            spacing: 8
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: "Nothing needs you."
-                color: root.text
-                font.pixelSize: 24
-                font.weight: Font.Medium
-            }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: deck.running.length > 0 ? deck.running.length + " at work" : ""
-                color: root.dim
-                font.pixelSize: 14
-            }
-        }
-
-        // The card peeking behind the front one.
-        Rectangle {
-            objectName: "behindCard"
-            visible: root.behind.key !== undefined
-            width: parent.width * 0.94
-            x: (parent.width - width) / 2
-            height: frontCard.height
-            y: 26
-            radius: 16
-            color: "#0c121b"
-            border.color: "#14ffffff"
-            Text {
-                x: 28
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: 6
-                width: parent.width - 56
-                text: root.behind.name !== undefined ? "next  ·  " + root.behind.name : ""
-                textFormat: Text.PlainText
-                color: root.faint
-                font.pixelSize: 13
-                elide: Text.ElideRight
-            }
-        }
-
-        // The card just answered, leaving: accept/send slides right, skip left.
-        Rectangle {
-            id: ghost
-            z: 2
+            id: column
             width: parent.width
-            height: 120
-            radius: 16
-            color: "#121a26"
-            border.color: "#1affffff"
-            opacity: 0
-            visible: opacity > 0
-            property alias name: ghostName.text
-            property alias line: ghostLine.text
-            Column {
-                x: 28
-                y: 26
-                width: parent.width - 56
-                spacing: 12
-                Text { id: ghostName; color: root.text; font.pixelSize: 18; font.weight: Font.DemiBold; textFormat: Text.PlainText }
-                Text { id: ghostLine; width: parent.width; color: "#ffffff"; font.pixelSize: 24; font.weight: Font.Medium; elide: Text.ElideRight; textFormat: Text.PlainText }
-            }
-            transform: Translate { id: ghostShift }
-            ParallelAnimation {
-                id: leave
-                property int direction: 1
-                NumberAnimation { target: ghostShift; property: "x"; from: 0; to: leave.direction * 90; duration: root.motion; easing.type: Easing.OutCubic }
-                NumberAnimation { target: ghost; property: "opacity"; from: 0.85; to: 0; duration: root.motion; easing.type: Easing.OutCubic }
-            }
-        }
 
-        Rectangle {
-            id: frontCard
-            objectName: "frontCard"
-            width: parent.width
-            height: Math.min(body.implicitHeight + 56, deckArea.height)
-            radius: 16
-            color: "#121a26"
-            border.color: "#1fffffff"
-            clip: true
-            // The slide animates its own factor so the hasFront binding stays.
-            property real arriveOpacity: 1
-            opacity: (root.hasFront ? 1 : 0) * arriveOpacity
-
-            property string shownKey: root.hasFront ? root.front.key : ""
-            onShownKeyChanged: if (!reducedMotion && root.hasFront) arrive.restart()
-            transform: [
-                Scale { id: grow; origin.x: frontCard.width / 2; origin.y: 0 },
-                Translate { id: shift }
-            ]
-            // Comes forward from where the card behind was.
-            ParallelAnimation {
-                id: arrive
-                NumberAnimation { target: shift; property: "y"; from: 26; to: 0; duration: root.motion; easing.type: Easing.OutCubic }
-                NumberAnimation { target: grow; properties: "xScale,yScale"; from: 0.95; to: 1; duration: root.motion; easing.type: Easing.OutCubic }
-                NumberAnimation { target: frontCard; property: "arriveOpacity"; from: 0.55; to: 1; duration: root.motion; easing.type: Easing.OutCubic }
-            }
-
-            Column {
-                id: body
-                x: 28
-                y: 26
-                width: parent.width - 56
-                spacing: 14
-
-                Item {
-                    width: parent.width
-                    height: who.implicitHeight
+            // The reply line: the agent's mark, then the guess as ghost text
+            // or what is being typed.
+            Item {
+                id: replyLine
+                objectName: "replyLine"
+                width: parent.width
+                height: root.hasFront ? Math.max(54, entry.implicitHeight + 30) : 0
+                // Hidden by opacity, never `visible`, like the entry itself: an
+                // invisible item cannot hold focus, and with an empty deck the
+                // entry has to keep the keyboard for Escape and the category
+                // keys to reach the overlay at all.
+                opacity: root.hasFront ? 1 : 0
+                HarnessTile {
+                    id: frontMark
+                    objectName: "frontTile"
+                    x: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    size: 26
+                    harness: root.hasFront ? root.front.harness : ""
+                    ring: root.hasFront ? root.weightColor(root.front.weight) : "transparent"
+                }
+                Text {
+                    id: proposal
+                    objectName: "proposal"
+                    x: entry.x
+                    width: entry.width
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: !root.typing && !deck.listening
+                    text: !root.hasFront ? ""
+                          : root.front.request ? "A request is waiting. Answer it in the agent's own window."
+                          : root.front.proposal.length > 0 ? root.front.proposal
+                          : "Type a reply"
+                    color: root.hasFront && root.front.canAccept ? "#9aa3b2" : root.faint
+                    font.family: root.hasFront && root.front.canAccept ? root.mono : Qt.application.font.family
+                    font.pixelSize: 15
+                    elide: Text.ElideRight
+                    textFormat: Text.PlainText
+                }
+                TextInput {
+                    id: entry
+                    objectName: "entry"
+                    x: frontMark.x + frontMark.width + 12
+                    width: parent.width - x - keyHints.width - 30
+                    anchors.verticalCenter: parent.verticalCenter
+                    // Hidden by opacity, never `visible`, so it keeps the keyboard.
+                    opacity: deck.listening ? 0 : 1
+                    focus: true
+                    color: "#ffffff"
+                    selectionColor: "#3b4a70"
+                    font.pixelSize: 15
+                    wrapMode: TextInput.Wrap
+                    cursorVisible: true
+                    Keys.onPressed: (event) => root.handleKey(event)
+                    Keys.onReleased: (event) => {
+                        if (event.key === Qt.Key_Alt && !event.isAutoRepeat) {
+                            root.optionArmed = true
+                            holdToSpeak.stop()
+                            root.optionHeld = false
+                            deck.setListening(false)
+                        }
+                    }
+                }
+                Row {
+                    x: entry.x
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: deck.listening
+                    spacing: 9
                     Row {
-                        id: who
-                        spacing: 10
-                        Rectangle {
-                            width: 9
-                            height: 9
-                            radius: 4.5
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: root.front.request ? root.violet : root.gold
-                        }
-                        Text {
-                            objectName: "agentName"
-                            text: root.hasFront ? root.front.name : ""
-                            color: root.text
-                            font.pixelSize: 18
-                            font.weight: Font.DemiBold
-                        }
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            visible: root.hasFront && root.front.folder.length > 0
-                            width: folder.implicitWidth + 14
-                            height: folder.implicitHeight + 4
-                            radius: 5
-                            color: "transparent"
-                            border.color: "#22ffffff"
-                            Text {
-                                id: folder
-                                anchors.centerIn: parent
-                                text: root.hasFront ? root.front.folder : ""
-                                color: root.dim
-                                font.family: root.mono
-                                font.pixelSize: 12
+                        spacing: 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        Repeater {
+                            model: 4
+                            delegate: Rectangle {
+                                required property int index
+                                width: 3
+                                radius: 1.5
+                                color: root.violet
+                                anchors.verticalCenter: parent.verticalCenter
+                                height: 6 + (index % 2) * 8
                             }
                         }
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            text: root.hasFront ? root.front.category : ""
-                            color: root.faint
-                            font.pixelSize: 13
-                        }
-                    }
-                }
-
-                Column {
-                    width: parent.width
-                    spacing: 6
-                    Text {
-                        objectName: "line"
-                        width: parent.width
-                        text: root.hasFront ? root.front.headline : ""
-                        color: "#ffffff"
-                        font.pixelSize: 24
-                        font.weight: Font.Medium
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 3
-                        elide: Text.ElideRight
-                        lineHeight: 1.18
-                        textFormat: Text.PlainText
-                    }
-                }
-
-                Column {
-                    id: blocks
-                    objectName: "blocks"
-                    width: parent.width
-                    spacing: 14
-                    visible: root.hasFront && root.front.blocks.length > 0
-                    Repeater {
-                        model: root.hasFront ? root.front.blocks : []
-                        delegate: Loader {
-                            required property var modelData
-                            width: blocks.width
-                            sourceComponent: modelData.type === "text" ? textBlock
-                                           : modelData.type === "list" ? listBlock
-                                           : modelData.type === "table" ? tableBlock
-                                           : modelData.type === "diagram" ? diagramBlock
-                                           : linkBlock
-                            property var block: modelData
-                        }
-                    }
-                    Component { id: textBlock; Paragraph { objectName: "textBlock"; text: parent.block.text } }
-                    Component { id: listBlock; ListBlock { objectName: "listBlock"; width: parent.width; block: parent.block } }
-                    Component { id: tableBlock; TableBlock { objectName: "tableBlock"; width: parent.width; block: parent.block } }
-                    Component { id: diagramBlock; DiagramBlock { objectName: "diagramBlock"; width: parent.width; block: parent.block } }
-                    Component { id: linkBlock; Item { width: parent.width; implicitHeight: 32; LinkChip { block: parent.parent.block } } }
-                }
-
-                // The proposed reply, sent as is with Tab.
-                Rectangle {
-                    width: parent.width
-                    height: proposal.implicitHeight + 28
-                    radius: 12
-                    color: "#55000000"
-                    border.color: root.hasFront && root.front.canAccept ? "#3a3420" : "#1cffffff"
-                    Rectangle {
-                        visible: root.hasFront && root.front.canAccept
-                        x: 0
-                        y: 10
-                        width: 3
-                        height: parent.height - 20
-                        radius: 1.5
-                        color: root.gold
                     }
                     Text {
-                        id: proposal
-                        objectName: "proposal"
-                        x: 18
-                        y: 14
-                        width: parent.width - 36
-                        text: !root.hasFront ? ""
-                              : root.front.request ? "A request is waiting. Answer it in the agent's own window."
-                              : root.front.proposal.length > 0 ? root.front.proposal
-                              : "No proposed reply for this one. Type yours."
-                        color: root.hasFront && root.front.canAccept ? "#e3e9f3" : root.dim
-                        font.family: root.mono
-                        font.pixelSize: 15
-                        lineHeight: 1.2
-                        wrapMode: Text.Wrap
-                        maximumLineCount: 6
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                    }
-                }
-
-                // What you are typing, or the speak placeholder.
-                Item {
-                    width: parent.width
-                    readonly property bool active: root.typing || deck.listening
-                    height: active ? Math.max(entry.implicitHeight, 24) : 0
-                    opacity: active ? 1 : 0
-                    Text {
-                        id: typedLabel
-                        opacity: deck.listening ? 0 : 1
-                        text: "you typed"
-                        color: root.dim
-                        font.pixelSize: 13
-                        y: 2
-                    }
-                    TextInput {
-                        id: entry
-                        objectName: "entry"
-                        // Hidden by opacity, never `visible`, so it keeps the keyboard.
-                        opacity: deck.listening ? 0 : 1
-                        x: typedLabel.implicitWidth + 10
-                        width: parent.width - x
-                        focus: true
+                        objectName: "listening"
+                        text: "listening"
                         color: root.violet
-                        selectionColor: "#3b2a5c"
-                        font.pixelSize: 16
-                        wrapMode: TextInput.Wrap
-                        cursorVisible: true
-                        Keys.onPressed: (event) => root.handleKey(event)
-                        Keys.onReleased: (event) => {
-                            if (event.key === Qt.Key_Alt && !event.isAutoRepeat) {
-                                root.optionArmed = true
-                                holdToSpeak.stop()
-                                root.optionHeld = false
-                                deck.setListening(false)
-                            }
-                        }
+                        font.pixelSize: 15
                     }
+                }
+                // What the keys do now: Tab and left at rest; Return and
+                // Command-Return while a reply is being written.
+                Row {
+                    id: keyHints
+                    objectName: "keyHints"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 6
+                    Keycap { visible: !root.typing && root.hasFront && root.front.canAccept; glyph: "⇥"; accent: root.green; lit: root.flash === "tab" }
+                    Keycap { visible: !root.typing; glyph: "←"; accent: root.red; lit: root.flash === "left" }
+                    Keycap { visible: root.typing && !root.pushing; glyph: "↵"; accent: root.green }
+                    Keycap { visible: root.typing && root.hasFront && root.front.canType; glyph: "⌘↵"; accent: root.needsColor; lit: root.pushing }
+                    Text {
+                        visible: root.pushing
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "push back"
+                        color: "#ff8f84"
+                        font.pixelSize: 12
+                        font.weight: Font.DemiBold
+                    }
+                }
+            }
+            Rectangle { width: parent.width; height: 1; color: "#14ffffff"; visible: root.hasFront }
+
+            // The card itself.
+            Item {
+                id: cardArea
+                objectName: "frontCard"
+                width: parent.width
+                height: root.hasFront ? frontBody.implicitHeight + 30
+                                         + (root.pushing ? pushBox.height + 12 : 0) : 0
+                visible: root.hasFront
+                CardBody {
+                    id: frontBody
+                    objectName: "frontBody"
+                    x: 18
+                    y: 14
+                    width: parent.width - 36 - lapisMap.width - 16
+                    card: root.front
+                    transform: Translate { id: arriveShift }
+                }
+                // Where this agent sits in lapis: one column per category in
+                // its colour, one block per agent in strip order, this one lit.
+                // Clicking it, or Command-L, shows the agent in lapis.
+                Column {
+                    id: lapisMap
+                    objectName: "lapisMap"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 16
+                    y: 14
+                    spacing: 5
                     Row {
-                        visible: deck.listening
-                        spacing: 9
-                        Row {
-                            spacing: 3
-                            anchors.verticalCenter: parent.verticalCenter
-                            Repeater {
-                                model: 4
-                                delegate: Rectangle {
-                                    required property int index
-                                    width: 3
-                                    radius: 1.5
-                                    color: root.violet
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    height: 6 + (index % 2) * 8
+                        spacing: 4
+                        Repeater {
+                            model: deck.map
+                            delegate: Column {
+                                required property var modelData
+                                spacing: 2
+                                Rectangle { width: 12; height: 3; radius: 1.5; color: root.hueColor(modelData.hue) }
+                                Repeater {
+                                    model: modelData.slots
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        objectName: modelData.lit ? "lapisMapLit" : ""
+                                        width: 12
+                                        height: 7
+                                        radius: 2
+                                        color: modelData.lit ? "#e9edf3" : "#22ffffff"
+                                        border.width: modelData.lit ? 1 : 0
+                                        border.color: "#ffffff"
+                                    }
                                 }
                             }
                         }
-                        Text {
-                            objectName: "listening"
-                            text: "listening"
-                            color: root.violet
-                            font.pixelSize: 16
-                        }
-                        Text {
-                            text: "voice input comes later; type instead"
-                            color: root.dim
-                            font.pixelSize: 13
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                    }
+                    Row {
+                        anchors.right: parent.right
+                        spacing: 4
+                        Keycap { glyph: "⌘L"; glyphSize: 10 }
+                        Text { text: "lapis"; color: root.dim; font.pixelSize: 11; anchors.verticalCenter: parent.verticalCenter }
                     }
                 }
+                MouseArea {
+                    anchors.fill: lapisMap
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: root.openInLapis()
+                }
+                // The push back: a larger box for a correction.
+                Rectangle {
+                    id: pushBox
+                    objectName: "pushBox"
+                    visible: root.pushing
+                    x: 18
+                    y: frontBody.y + frontBody.implicitHeight + 12
+                    width: parent.width - 36
+                    height: Math.max(96, pushText.contentHeight + 22)
+                    radius: 9
+                    color: "#33000000"
+                    border.color: "#55ef5b4f"
+                    TextEdit {
+                        id: pushText
+                        objectName: "pushText"
+                        x: 12
+                        y: 10
+                        width: parent.width - 24
+                        color: "#ffffff"
+                        selectionColor: "#5a2a2a"
+                        font.pixelSize: 14
+                        wrapMode: TextEdit.Wrap
+                        Keys.onPressed: (event) => root.handlePushKey(event)
+                    }
+                    Text {
+                        x: 12
+                        y: 10
+                        visible: pushText.length === 0
+                        text: "What should it do differently?"
+                        color: root.faint
+                        font.pixelSize: 14
+                    }
+                }
+                property string shownKey: root.hasFront ? root.front.key : ""
+                onShownKeyChanged: root.arrived()
             }
-        }
-    }
 
-    Text {
-        objectName: "message"
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: hints.top
-        anchors.bottomMargin: 14
-        width: parent.width * 0.6
-        horizontalAlignment: Text.AlignHCenter
-        text: root.hint.length > 0 ? root.hint : deck.notice.length > 0 ? deck.notice : deck.message
-        color: root.dim
-        font.pixelSize: 13
-        elide: Text.ElideRight
-    }
-
-    // The four answers, as keys that light up when pressed.
-    Row {
-        id: hints
-        objectName: "hints"
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 24
-        spacing: 30
-        Repeater {
-            model: [
-                { id: "tab", glyph: "⇥  tab", label: "accept", accent: "#e8b931", size: 15 },
-                { id: "option", glyph: "⌥", label: "hold to speak", accent: "#c77dff", size: 18 },
-                { id: "type", glyph: "abc", label: "type, ↵ to send", accent: "#4a86ff", size: 14 },
-                { id: "left", glyph: "←", label: "skip", accent: "#4a86ff", size: 18 }
-            ]
-            delegate: Row {
-                required property var modelData
-                objectName: "hint-" + modelData.id
-                readonly property bool on: !root.hasFront ? false
-                                         : modelData.id === "tab" ? root.front.canAccept && !root.typing
-                                         : modelData.id === "type" ? root.front.canType
-                                         : modelData.id === "left" ? !root.typing
-                                         : true
-                property bool lit: !on ? false : modelData.id === "option" ? (root.optionHeld || deck.listening)
-                                 : modelData.id === "type" ? (root.typing || root.flash === "type")
-                                 : root.flash === modelData.id
-                spacing: 10
-                Keycap {
-                    id: keycap
+            // Nothing waiting.
+            Row {
+                objectName: "empty"
+                visible: !root.hasFront
+                height: visible ? 56 : 0
+                leftPadding: 18
+                spacing: 12
+                Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
-                    glyph: modelData.glyph
-                    glyphSize: modelData.size
-                    accent: modelData.accent
-                    available: parent.on
-                    lit: parent.lit
+                    width: 24
+                    height: 24
+                    radius: 12
+                    color: Qt.rgba(62 / 255, 207 / 255, 142 / 255, 0.16)
+                    Text { anchors.centerIn: parent; text: "✓"; color: root.green; font.pixelSize: 13; font.weight: Font.Bold }
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: modelData.label
-                    color: parent.lit ? "#ffffff" : parent.on ? root.body : root.faint
+                    text: "Nothing needs you."
+                    color: root.text
                     font.pixelSize: 15
                 }
             }
+
+            // Every agent in its light: red needs you, yellow could use a
+            // nudge, green is running. The card in front is the brighter one.
+            Rectangle {
+                width: parent.width
+                visible: root.hasFront || message.text.length > 0
+                         || deck.groups.running.length > 0
+                height: visible ? 40 : 0
+                color: "#22000000"
+                Rectangle { width: parent.width; height: 1; color: "#12ffffff" }
+                Row {
+                    x: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 8
+                    Light { name: "needsLight"; tint: root.needsColor; agents: deck.groups.needs }
+                    Light { name: "steerLight"; tint: root.steerColor; agents: deck.groups.steer }
+                }
+                Text {
+                    id: message
+                    objectName: "message"
+                    anchors.centerIn: parent
+                    width: parent.width * 0.34
+                    horizontalAlignment: Text.AlignHCenter
+                    // Only what needs a look: a refused send, a notice, a hint.
+                    // A send that went through says so by leaving.
+                    text: root.hint.length > 0 ? root.hint
+                          : deck.notice.length > 0 ? deck.notice
+                          : (deck.message.startsWith("Not sent") || deck.message.startsWith("That agent")) ? deck.message
+                          : ""
+                    color: deck.message.startsWith("Not sent") && root.hint.length === 0 ? root.red : root.dim
+                    font.pixelSize: 12
+                    elide: Text.ElideRight
+                }
+                Light {
+                    name: "runningLight"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    tint: root.runningColor
+                    agents: deck.groups.running.slice(0, 8)
+                }
+            }
         }
+    }
+
+    // The card just answered, leaving: a frozen copy slides right for an
+    // accept or a send and left for a skip, over the panel's edge.
+    property var leavingCard: ({})
+    Rectangle {
+        id: ghost
+        objectName: "ghost"
+        z: 5
+        x: panel.x
+        // Where the card sat when it left, not where the reply line is now:
+        // that height collapses as the deck empties or a wrapped draft clears,
+        // which would move the copy mid-slide.
+        property real restingY: panel.y + 55
+        y: restingY
+        width: panel.width
+        height: ghostBody.implicitHeight + 30
+        radius: 12
+        color: Qt.rgba(26 / 255, 29 / 255, 36 / 255, 0.96)
+        border.color: "#22ffffff"
+        opacity: 0
+        visible: opacity > 0
+        property int direction: 1
+        property color accent: root.green
+        CardBody {
+            id: ghostBody
+            x: 18
+            y: 14
+            width: parent.width - 36
+            card: root.leavingCard
+        }
+        transform: [
+            Rotation { id: ghostTurn; origin.x: ghost.width / 2; origin.y: ghost.height; angle: 0 },
+            Scale { id: ghostSize; origin.x: ghost.width / 2; origin.y: 0 },
+            Translate { id: ghostShift }
+        ]
+        ParallelAnimation {
+            id: leave
+            // Off quickly, so the next card is never hidden for long. The
+            // copy is drawn in this window, so it can only travel as far as
+            // the room past the panel's edge on its side: farther would be
+            // clipped, not leaving.
+            property real room: ghost.direction < 0 ? panel.x
+                                                    : root.width - panel.x - panel.width
+            NumberAnimation { target: ghostShift; property: "x"; from: 0; to: ghost.direction * Math.max(8, leave.room - 8); duration: root.motion + 20; easing.type: Easing.OutQuad }
+            NumberAnimation { target: ghostShift; property: "y"; from: 0; to: -8; duration: root.motion + 20; easing.type: Easing.OutCubic }
+            NumberAnimation { target: ghostTurn; property: "angle"; from: 0; to: ghost.direction * 5; duration: root.motion + 20; easing.type: Easing.OutQuad }
+            NumberAnimation { target: ghostSize; properties: "xScale,yScale"; from: 1; to: 0.94; duration: root.motion + 20; easing.type: Easing.OutQuad }
+            NumberAnimation { target: ghost; property: "opacity"; from: 0.95; to: 0; duration: root.motion + 20; easing.type: Easing.OutQuad }
+            SequentialAnimation {
+                PropertyAction { target: glow; property: "border.color"; value: ghost.accent }
+                NumberAnimation { target: glow; property: "opacity"; from: 0.9; to: 0; duration: 420; easing.type: Easing.OutCubic }
+            }
+        }
+    }
+
+    // The next card arrives: its content slides up into place while a thin
+    // line of its colour fades along the top.
+    ParallelAnimation {
+        id: arrive
+        NumberAnimation { target: arriveShift; property: "y"; from: 22; to: 0; duration: root.motion + 60; easing.type: Easing.OutCubic }
+        NumberAnimation { target: frontBody; property: "opacity"; from: 0; to: 1; duration: root.motion + 60; easing.type: Easing.OutCubic }
+        NumberAnimation { target: arrivalLine; property: "opacity"; from: 1; to: 0; duration: 520; easing.type: Easing.OutCubic }
     }
 
     Timer {
@@ -882,15 +985,57 @@ Item {
         flashOff.restart()
     }
 
-    // The front card leaves in `direction` while the next one comes forward.
+    // The front card leaves in `direction` (1 right, -1 left); the deck
+    // changes right after, and arrived() brings the next one in.
     function leaving(direction) {
         if (reducedMotion || !hasFront)
             return
-        ghost.name = front.name
-        ghost.line = front.headline
-        ghost.height = frontCard.height
-        leave.direction = direction
+        leavingCard = Object.assign({}, front)
+        ghost.restingY = panel.y + replyLine.height + 1
+        ghost.direction = direction
+        ghost.accent = direction > 0 ? green : red
         leave.restart()
+    }
+    function arrived() {
+        if (reducedMotion || settling || !hasFront)
+            return
+        arrivalLine.color = weightColor(front.weight)
+        arrive.restart()
+    }
+
+    function openInLapis() {
+        if (deck.openInLapis())
+            deck.dismiss()
+    }
+    // In the push-back box Return is a new line; Command-Return sends it as a
+    // correction and Escape goes back to the one-line reply.
+    function handlePushKey(event) {
+        if ((event.modifiers & Qt.ControlModifier)
+                && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            const trimmed = pushText.text.trim()
+            if (hasFront && front.canType && trimmed.length > 0) {
+                const card = Object.assign({}, front)
+                if (deck.pushBack(pushText.text)) {
+                    // Sent, so it leaves the way a send leaves: right, green.
+                    leavingCard = card
+                    ghost.restingY = panel.y + replyLine.height + 1
+                    ghost.direction = 1
+                    ghost.accent = green
+                    if (!reducedMotion)
+                        leave.restart()
+                    pushText.text = ""
+                    pushing = false
+                }
+            }
+            event.accepted = true
+        } else if (event.key === Qt.Key_Escape) {
+            const kept = pushText.text
+            // The text goes back before `pushing` clears, so `typing` never
+            // rests on an empty entry and the draft keeps its card.
+            entry.text = kept.replace(/\n/g, " ")
+            pushing = false
+            event.accepted = true
+        }
     }
 
     function handleKey(event) {
@@ -910,6 +1055,14 @@ Item {
         if ((event.modifiers & Qt.ControlModifier)
                 && (event.key === Qt.Key_BracketLeft || event.key === Qt.Key_BracketRight)) {
             deck.nextCategory(event.key === Qt.Key_BracketLeft ? -1 : 1)
+            event.accepted = true
+        } else if ((event.modifiers & Qt.ControlModifier)
+                   && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+            if (hasFront && front.canType)
+                pushing = true
+            event.accepted = true
+        } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_L) {
+            openInLapis()
             event.accepted = true
         } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_O) {
             if (!deck.openLink(0))

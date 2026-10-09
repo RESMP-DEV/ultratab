@@ -35,6 +35,7 @@ struct ComposedCard {
     QDateTime composed;
     QString model;
     QString since;
+    QString attention; // needs, steer or fyi (the composer's judgement); may be empty
     QString tldr;
     QList<Block> blocks; // at most max_blocks
     QString prompt;

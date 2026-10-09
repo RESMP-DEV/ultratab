@@ -26,10 +26,14 @@ struct Card {
     QString folder;
     QString category_id;
     QString category_name;
+    QString harness;  // the agent's CLI (claude, codex, ...)
     QString line;     // what happened, one sentence
     QString proposal; // the proposed reply (composed, else lapis's guess); may be empty
     bool request{};   // a request (such as a permission prompt) is pending
-    int tier{};       // lapis's Tab tier (attention_order.hpp)
+    // How much it needs the person: 2 needs you (red), 1 could steer
+    // (yellow), 0 only running or reporting (green, never a card).
+    int weight{1};
+    int tier{}; // lapis's Tab tier (attention_order.hpp)
     qint64 needed_at_ms{};
     int position{}; // registry order
     // The composer's card for this turn, when it is current.
@@ -81,8 +85,17 @@ class Deck final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantMap front READ front NOTIFY changed)
     Q_PROPERTY(QVariantMap behind READ behind NOTIFY changed)
+    // The cards after the front one, in order, as marks only (key, mark,
+    // hue, request): the overlay's peeking edges and its queue.
+    Q_PROPERTY(QVariantList queue READ queue NOTIFY changed)
     Q_PROPERTY(QVariantList rail READ rail NOTIFY changed)
     Q_PROPERTY(QVariantList running READ running NOTIFY changed)
+    // Every agent by weight, for the footer's three lights: lists of
+    // {harness, name, key, front} under "needs", "steer" and "running".
+    Q_PROPERTY(QVariantMap groups READ groups NOTIFY changed)
+    // lapis's layout in small: each category in rail order with its agents in
+    // strip order ({id, hue, slots: [{agent, lit}]}); lit is the front card's.
+    Q_PROPERTY(QVariantList map READ map NOTIFY changed)
     Q_PROPERTY(QVariantList history READ history NOTIFY changed)
     Q_PROPERTY(QString message READ message NOTIFY changed)
     // Why the deck may be incomplete: no workspace, no published state, or
@@ -106,6 +119,16 @@ class Deck final : public QObject {
 
     [[nodiscard]] QVariantMap front() const;
     [[nodiscard]] QVariantMap behind() const;
+    [[nodiscard]] QVariantList queue() const;
+    [[nodiscard]] QVariantMap groups() const;
+    [[nodiscard]] QVariantList map() const;
+    static constexpr int map_slots = 12;
+    // How the front card's agent is shown in lapis (a test seam; main writes
+    // the request lapis watches and brings lapis forward).
+    void setLapisOpener(std::function<void(const QString&)> opener) {
+        lapis_opener_ = std::move(opener);
+    }
+    static constexpr int queue_limit = 6;
     [[nodiscard]] QVariantList rail() const;
     [[nodiscard]] QVariantList running() const;
     [[nodiscard]] QVariantList history() const;
@@ -125,6 +148,10 @@ class Deck final : public QObject {
     Q_INVOKABLE void setDrafting(bool on);
     // Left arrow or Delete: drop the front card without sending anything.
     Q_INVOKABLE bool skip();
+    // Command-Return twice: a correction, sent as typed, logged as a push back.
+    Q_INVOKABLE bool pushBack(const QString& text);
+    // Command-L: show the front card's agent in lapis. False without one.
+    Q_INVOKABLE bool openInLapis();
     // Holding the speak key. Voice input is not built yet; this only shows
     // that the deck is listening.
     Q_INVOKABLE void setListening(bool on);
@@ -156,7 +183,10 @@ class Deck final : public QObject {
         QString outcome; // sending, sent, not sent, skipped
     };
     [[nodiscard]] const Agent* agent(const QString& id) const;
-    [[nodiscard]] static QVariantMap describe(const Card& card);
+    [[nodiscard]] QVariantMap describe(const Card& card) const;
+    // The card's colour: the category's place on the rail, or -1 for a
+    // pending request (the overlay draws it red).
+    [[nodiscard]] int hue(const Card& card) const;
     [[nodiscard]] static QVariantList describe_blocks(const ComposedCard& composed);
     bool answer(const Card& card, const QString& how, const QString& text);
     void remember(Answer answer);
@@ -173,6 +203,7 @@ class Deck final : public QObject {
     std::function<bool(qint64)> running_;
     std::function<void(const QUrl&)> opener_;
     std::function<void(const QJsonObject&)> log_;
+    std::function<void(const QString&)> lapis_opener_;
     std::shared_ptr<DiagramStore> diagrams_{std::make_shared<DiagramStore>()};
 };
 } // namespace lapis::ultratab

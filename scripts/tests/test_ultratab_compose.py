@@ -261,6 +261,16 @@ class ValidationTest(Fixture):
         self.assertEqual(card["prompt"], "ship big")
         self.assertEqual(card["composed"], "2026-10-06T15:00:00Z")
 
+    def test_attention_is_kept_only_when_known(self):
+        for label in ("needs", "steer", "fyi"):
+            answer = json.loads(model_card())
+            answer["attention"] = label
+            card = self.compose_with(json.dumps(answer))["card"]
+            self.assertEqual(card["attention"], label)
+        answer = json.loads(model_card())
+        answer["attention"] = "urgent!!"
+        self.assertNotIn("attention", self.compose_with(json.dumps(answer))["card"])
+
     def test_lapis_guess_is_the_prompt(self):
         job = dict(self.job, offer={"text": "ship it for big shapes", "said": "x"})
         self.assertEqual(

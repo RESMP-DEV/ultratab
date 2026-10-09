@@ -199,6 +199,10 @@ std::optional<ComposedCard> parse_card(const QJsonObject& object) {
     card.model = bounded(object.value(QStringLiteral("model")), kLabelText);
     card.since = bounded(object.value(QStringLiteral("since")), kShortText);
     card.tldr = bounded(object.value(QStringLiteral("tldr")), kShortText);
+    if (const auto attention = object.value(QStringLiteral("attention")).toString();
+        attention == QLatin1String("needs") || attention == QLatin1String("steer") ||
+        attention == QLatin1String("fyi"))
+        card.attention = attention;
     card.prompt = bounded(object.value(QStringLiteral("prompt")), kLongText);
     for (const auto& value : object.value(QStringLiteral("blocks")).toArray()) {
         if (card.blocks.size() == max_blocks)

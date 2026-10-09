@@ -30,5 +30,17 @@ bool write_positions(const QString& home, const Positions& positions);
 // centered.
 [[nodiscard]] QRect place_window(const QRect& available, const QSize& size,
                                  const std::optional<QPoint>& saved);
+
+// Where a dragged window lands: centered across when within `reach` of the
+// screen's center line, and its panel's top level with one of a few heights
+// (near the top, a fifth down, centered, the lower third) when within reach;
+// otherwise where it was dragged, kept on screen.
+struct Snap {
+    QPoint position;
+    bool centered{};
+    bool level{};
+};
+[[nodiscard]] Snap snap_window(const QRect& available, const QSize& window, int panel_top,
+                               int panel_height, QPoint wanted, int reach = 16);
 } // namespace lapis::ultratab
 #endif

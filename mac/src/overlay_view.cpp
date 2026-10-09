@@ -60,6 +60,9 @@ bool load_overlay(QQuickView& view, Deck& deck, const ViewOptions& options) {
     context->setContextProperty(QStringLiteral("deck"), &deck);
     context->setContextProperty(QStringLiteral("backdrop"), options.backdrop);
     context->setContextProperty(QStringLiteral("reducedMotion"), options.reduced_motion);
+    // Owned by the view: the QML engine holds only the borrowed pointer this
+    // context property carries, and the view destroys the host with itself.
+    context->setContextProperty(QStringLiteral("host"), new OverlayHost(&view));
     view.setSource(QUrl(QStringLiteral("qrc:/ultratab/qml/Overlay.qml")));
     if (view.status() != QQuickView::Ready) {
         for (const auto& error : view.errors())
