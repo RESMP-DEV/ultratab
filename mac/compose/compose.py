@@ -553,7 +553,9 @@ def plain(text, limit):
 def one_line(text, limit=TLDR_CHARS):
     # Markdown markup only: heading and quote markers, bold and code ticks.
     # "C#", "#12" and "2*3" keep their characters.
-    text = re.sub(r"^[ \t]*(?:#+[ \t]+|>+[ \t]*)", "", str(text or ""), flags=re.MULTILINE)
+    text = re.sub(
+        r"^[ \t]*(?:#+[ \t]+|>+[ \t]*)", "", str(text or ""), flags=re.MULTILINE
+    )
     text = text.replace("**", "").replace("`", "")
     return plain(re.sub(r"\s+", " ", text), limit)
 
