@@ -79,8 +79,8 @@ class FakeRunner final : public ComposeRunner {
 };
 
 struct Waiting {
-    char letter;
-    qint64 turn;
+    char letter{};
+    qint64 turn{};
     QString offer_key;
     QString offer_text;
     QString said;

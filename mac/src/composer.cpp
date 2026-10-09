@@ -248,37 +248,7 @@ void Composer::reconcile() {
     const auto now = clock_.elapsed();
     order_.clear();
     for (const auto& card : waiting_cards(published_)) {
-        const auto& id = card.agent_id;
-        const auto& state = published_.states[id];
-        const auto key = compose_key(state);
-        const auto turn = compose_turn(state);
-        order_.append(id);
-        if (const auto have = cards_.constFind(id); have != cards_.cend()) {
-            if (have->card.value(QStringLiteral("key")).toString() == key) {
-                wanted_.remove(id);
-                continue;
-            }
-            // A guess for the turn already composed: the card takes the
-            // guess as its prompt without another model call.
-            if (have->turn == turn && state.offer) {
-                auto patched = have->card;
-                patched.insert(QStringLiteral("key"), key);
-                patched.insert(QStringLiteral("prompt"), state.offer->text);
-                wanted_.remove(id);
-                store(id, patched, turn);
-                log({{QStringLiteral("event"), QStringLiteral("guess")},
-                     {QStringLiteral("session"), id},
-                     {QStringLiteral("key"), key}});
-                continue;
-            }
-        }
-        // Composing this turn already; its guess is applied when it lands.
-        if (const auto run = running_.constFind(id);
-            run != running_.cend() && (run->key == key || run->turn == turn))
-            continue;
-        if (const auto want = wanted_.constFind(id); want != wanted_.cend() && want->key == key)
-            continue;
-        wanted_.insert(id, {key, turn, now + settings_.debounce_ms});
+        reconcileCard(card.agent_id, published_.states[card.agent_id], now);
     }
     for (auto want = wanted_.begin(); want != wanted_.end();)
         want = order_.contains(want.key()) ? std::next(want) : wanted_.erase(want);
@@ -297,6 +267,38 @@ void Composer::reconcile() {
             write();
     }
     pump();
+}
+
+void Composer::reconcileCard(const QString& id, const AgentState& state, qint64 now) {
+    const auto key = compose_key(state);
+    const auto turn = compose_turn(state);
+    order_.append(id);
+    if (const auto have = cards_.constFind(id); have != cards_.cend()) {
+        if (have->card.value(QStringLiteral("key")).toString() == key) {
+            wanted_.remove(id);
+            return;
+        }
+        // A guess for the turn already composed: the card takes the
+        // guess as its prompt without another model call.
+        if (have->turn == turn && state.offer) {
+            auto patched = have->card;
+            patched.insert(QStringLiteral("key"), key);
+            patched.insert(QStringLiteral("prompt"), state.offer->text);
+            wanted_.remove(id);
+            store(id, patched, turn);
+            log({{QStringLiteral("event"), QStringLiteral("guess")},
+                 {QStringLiteral("session"), id},
+                 {QStringLiteral("key"), key}});
+            return;
+        }
+    }
+    // Composing this turn already; its guess is applied when it lands.
+    if (const auto run = running_.constFind(id);
+        run != running_.cend() && (run->key == key || run->turn == turn))
+        return;
+    if (const auto want = wanted_.constFind(id); want != wanted_.cend() && want->key == key)
+        return;
+    wanted_.insert(id, {key, turn, now + settings_.debounce_ms});
 }
 
 void Composer::pump() {
@@ -325,7 +327,7 @@ void Composer::pump() {
         took.start();
         runner_.start(input, std::chrono::milliseconds(settings_.timeout_ms),
                       [self = QPointer<Composer>(this), id, run,
-                       took](std::optional<QJsonObject> answer, const QString& failure) {
+                       took](const std::optional<QJsonObject>& answer, const QString& failure) {
                           if (self)
                               self->finished(id, run, answer, failure, took.elapsed());
                       });
@@ -343,7 +345,8 @@ void Composer::finished(const QString& id, const Running& run,
                       {QStringLiteral("ms"), ms}};
     auto card = answer ? answer->value(QStringLiteral("card")).toObject() : QJsonObject{};
     const bool fits = compact(card).size() <= max_card_bytes;
-    if (!card.isEmpty() && fits && card.value(QStringLiteral("key")).toString() == run.key) {
+    if (answer && !card.isEmpty() && fits &&
+        card.value(QStringLiteral("key")).toString() == run.key) {
         const bool ok = answer->value(QStringLiteral("ok")).toBool();
         event.insert(QStringLiteral("event"),
                      ok ? QStringLiteral("composed") : QStringLiteral("fallback"));

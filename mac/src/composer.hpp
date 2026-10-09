@@ -120,6 +120,7 @@ class Composer final : public QObject {
         qint64 turn{};
     };
     void reconcile();
+    void reconcileCard(const QString& id, const AgentState& state, qint64 now);
     void pump();
     void finished(const QString& id, const Running& run, const std::optional<QJsonObject>& answer,
                   const QString& failure, qint64 ms);

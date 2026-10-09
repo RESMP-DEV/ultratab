@@ -1,6 +1,6 @@
 #include "deck.hpp"
-#include "composer.hpp"
 #include "attention_order.hpp"
+#include "composer.hpp"
 
 #include <QCryptographicHash>
 #include <QDesktopServices>

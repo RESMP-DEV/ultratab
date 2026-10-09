@@ -16,7 +16,7 @@ struct Hotkey {
     bool control{};
     bool shift{};
     Side optionSide{}; // which Option key, when option is set
-    QString key; // canonical: "Space", "A", "7", "F5", "Return", "Tab", "Escape"
+    QString key;       // canonical: "Space", "A", "7", "F5", "Return", "Tab", "Escape"
     bool operator==(const Hotkey&) const = default;
 };
 inline constexpr const char* default_hotkey = "LeftOption-Space";

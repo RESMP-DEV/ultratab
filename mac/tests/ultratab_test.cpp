@@ -314,7 +314,7 @@ void draftsKeepTheirCard() {
     // would go in front of persist-gui.
     auto next = fixture();
     next.states[id('b')].offer = Offer{QStringLiteral("b:1"), QStringLiteral("restart it"),
-                                      QStringLiteral("It crashed."), false};
+                                       QStringLiteral("It crashed."), false};
     deck.setPublished(next);
     require(deck.front().value(QStringLiteral("name")) == QLatin1String("persist-gui"),
             "the card being typed to stays in front");
@@ -623,8 +623,9 @@ void svgIsSanitized() {
             "a root fill is kept as written");
     const auto commented =
         sanitize_svg(QStringLiteral("<!-- an <svg> sketch --><svg viewBox='0 0 1 1'/>"));
-    require(commented && commented->endsWith(QStringLiteral(
-                             "<svg viewBox='0 0 1 1' fill=\"#c6d2e4\" color=\"#c6d2e4\"/>")) &&
+    require(commented &&
+                commented->endsWith(QStringLiteral(
+                    "<svg viewBox='0 0 1 1' fill=\"#c6d2e4\" color=\"#c6d2e4\"/>")) &&
                 commented->startsWith(QStringLiteral("<!-- an <svg> sketch -->")),
             "the default fill goes into the root tag, not a comment before it");
     for (const auto* bad : {
