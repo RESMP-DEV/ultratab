@@ -300,12 +300,9 @@ void overlayAnswersEveryCard() {
             "the agent that needs you first is in front");
     require(find(root, QStringLiteral("behindCard"))->isVisible(), "one card peeks behind");
 
-    // The composed card: since, headline, text, table and link blocks.
-    require(find(root, QStringLiteral("since"))
-                ->property("text")
-                .toString()
-                .startsWith(QStringLiteral("You last looked")),
-            "the since line shows above the headline");
+    // The composed card: headline, text, table and link blocks. When the
+    // person last looked frames the card; it is not shown.
+    require(find(root, QStringLiteral("since")) == nullptr, "no since line");
     require(find(root, QStringLiteral("line"))
                 ->property("text")
                 .toString()
@@ -398,8 +395,7 @@ void overlayAnswersEveryCard() {
                     .toString()
                     .startsWith(QStringLiteral("New tile is faster")) &&
                 find(root, QStringLiteral("proposal"))->property("text").toString() ==
-                    QLatin1String("ship it for big shapes only") &&
-                !find(root, QStringLiteral("since"))->isVisible(),
+                    QLatin1String("ship it for big shapes only"),
             "a stale composed card falls back to the plain card");
     capture(view, QStringLiteral("overlay-fallback.png"));
     key(view, Qt::Key_Backspace); // Delete with nothing typed skips too

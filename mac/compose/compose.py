@@ -359,6 +359,7 @@ def context(job, now=None):
         "time": iso(now),
         "waited": span(now - needed / 1000) if needed > 0 else "",
         "looked": iso(looked) if looked is not None else "",
+        "looked_ago": span(now - looked) if looked is not None else "",
         "turns_since": since_turns,
         "since": since,
         "turns": next_prompt.history(turns),
@@ -381,6 +382,13 @@ You get the agent's title and category, how long it has waited, when they last
 looked at it and how many turns happened since, the end of the conversation,
 files the agent wrote or mentioned since they last looked, and lapis's guess at
 their next message when there is one.
+
+Frame the card by how much of the thread they still hold. When they looked
+minutes ago, they remember it: say only what changed and what it needs. When
+they last looked hours ago, never looked, or it has waited a day or more, they
+have likely forgotten: open the tldr with what the thread is about in a few
+words, then where it stands. The timing is for you: never write when they
+last looked or how long it waited, and never count turns for them.
 
 Choose the layout from the content:
 - "tldr": always. One line, at most 140 characters: where the thread stands and
@@ -442,8 +450,10 @@ def render(bundle, fence=None):
         lines.append("It has waited for them for " + bundle["waited"] + ".")
     if bundle["looked"]:
         lines.append(
-            "They last looked at it at {}; {} agent turns since.".format(
-                bundle["looked"], bundle["turns_since"] or 0
+            "They last looked at it {} ago ({}); {} agent turns since.".format(
+                bundle.get("looked_ago") or "some time",
+                bundle["looked"],
+                bundle["turns_since"] or 0,
             )
         )
     else:
@@ -710,6 +720,8 @@ def card_from(answer, bundle, key, model, composed):
 def finish(content, bundle, key, model, composed):
     card = {"key": key, "composed": composed, "model": model}
     if bundle.get("since"):
+        # Timing frames the card without being shown; the renderer owns the
+        # choice to omit this field.
         card["since"] = bundle["since"]
     if content.get("tldr"):
         card["tldr"] = content["tldr"]

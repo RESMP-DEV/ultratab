@@ -18,8 +18,7 @@ a quiet column on the right names the agents at work, each with a pulsing dot.
 A plain card's headline is one sentence of what happened (the start of the
 agent's last reply) and its proposed reply is lapis's guess at your next prompt
 ([suggestions](suggestions.md); with suggestions off, plain cards have no
-guess). A composed card (below) adds a dim "since" line above the headline, its
-own headline and up to three blocks: a paragraph, a short list, a table, a
+guess). A composed card (below) has its own headline and up to three blocks: a paragraph, a short list, a table, a
 diagram or a link, and its own proposed reply.
 
 Every card takes the same four answers, shown as keys along the bottom that
@@ -62,12 +61,14 @@ agents whose state is unknown, are never cards; a pending request always is.
 ## Composed cards
 
 For each agent that waits on you, Ultra Tab also composes a card meant to put
-you back in that thread in seconds: when you last looked at it and how many
-turns happened since, a one-line summary, and at most three blocks the model
+you back in that thread in seconds: a one-line summary and at most three blocks
+the model
 chooses (a short paragraph, a list, a table when there are numbers to compare,
 a small diagram when structure is the point, or a link to a report the agent
 wrote that you have not opened). Its proposed next message is lapis's guess
-when there is one.
+when there is one. When you last looked and how long the agent has waited
+frame the card but are not shown: a thread you looked at minutes ago gets only
+what changed, and one you have likely forgotten opens with what it is about.
 
 A card is composed when the agent has a newer finished turn or a new guess than
 the card was composed for, after two seconds of quiet, at most two at a time,
@@ -107,7 +108,6 @@ atomically, only when a card changes, at most 512 KiB):
 {"v": 1, "cards": {"<agent id>": {
   "key": "<the guess key, or turn:<ms> for the finished turn>",
   "composed": "2026-10-07T06:01:45Z", "model": "claude-opus-5-5",
-  "since": "You last looked 3 h ago; 2 turns since",
   "tldr": "<one line>",
   "blocks": [{"type": "text", "text": "..."}, {"type": "list", "items": ["..."]},
              {"type": "table", "columns": ["..."], "rows": [["..."]]},
@@ -228,7 +228,8 @@ or the `agent_state.json` values `<turnAtMs>|<neededAtMs>|<offer key>|<requests>
 joined by `|`, optionally prefixed with `<session id>|`. Any other key is stale
 and the plain card shows. A card without `tldr` keeps the plain
 headline; one without `prompt` keeps lapis's guess. A request card never takes a
-composed prompt.
+composed prompt. `since` is when the person last looked and how many turns
+passed since; it frames the card but neither renderer shows it.
 
 What is shown, and the limits applied on reading:
 
@@ -251,33 +252,49 @@ What is shown, and the limits applied on reading:
 
 Ultra Tab for iPhone (`apps/ios/UltraTab`) is a separate app with the same
 icon. It deals the same deck, in the same order, one card at a time: the
-agent's name, folder and category, the "since" line, the headline, up to three
-blocks (paragraph, list, table, diagram, link) and the proposed reply. It
+agent's name, the headline, up to three blocks (paragraph, list, table,
+diagram, link) and the proposed reply, in a gold-edged box. A card with no
+proposal shows a quiet hint to add a note below. The category chips
+are the top of the screen; a dot marks one where something waits. Settings
+(the gateway address) open from the gear on the empty deck or from a
+connection notice. It
 reaches the Mac through the [phone gateway](phone.md), so it needs the same
 Tailscale or ZeroTier setup as the lapis phone app and nothing else.
 
-Every card takes three answers:
+Every card takes three answers, with no buttons for the first two:
 
 | Gesture | Answer |
 | --- | --- |
-| Swipe right (or Send) | Accept: send the proposed reply |
-| Swipe left (or Skip) | Skip: the next card comes forward; nothing is sent |
-| The voice button | Annotate: tap to start and again to stop, or hold while speaking; the words land in the field above it |
+| Swipe right | Accept: send the proposed reply |
+| Swipe left | Skip: the next card comes forward; nothing is sent |
+| A note in the field | Annotate: type it, or dictate with the keyboard's own voice input (Wispr Flow or Apple's), then press the arrow |
 
-The annotation field is ordinary text: edit what was heard or type with the
-keyboard, then press the arrow to send it. Nothing is sent until then.
-Dictation uses Apple's speech recognizer, on the iPhone when it supports that;
-the first use asks for speech recognition and microphone access. A tap on a
-web link opens it in the browser; a link to a file names it as being on the
-Mac. A card waiting on a request springs back from a right swipe: answer it in
-lapis. The chips on top choose a category, as Command-[ and Command-] do on the
-Mac.
+The first launch shows these once. The app has no voice input of its own and
+asks for no microphone access: the keyboard's dictation is better today, and a
+voice model can come back as a keyboard later. Nothing is sent until the
+arrow. The keyboard goes away with the button beside the field, a touch on the
+card or a scroll of it. A tap on a web link opens it in the browser; a link to
+a file names it as being on the Mac. A card waiting on a request springs back
+from a right swipe: answer it in lapis. The chips on top choose a category, as
+Command-[ and Command-] do on the Mac.
 
 An answer joins the agent's session beside the lapis window, sends one paste
 and Return, and leaves, as the Mac overlay does; the window keeps its
 connection and the terminal keeps its size. A send the session refuses brings
-the card back with the reason. Answers and skips are kept on the phone until
-the app quits; the Mac overlay keeps its own.
+the card back with the reason.
+
+Every answer, on either app, is also recorded on the Mac in
+`runtime/ultratab_answers.jsonl` (owner-only; past 16 MB it moves to `.1`),
+one JSON line each: when, from the phone or the Mac, the agent, the card's
+key, what it proposed, accepted, annotated or skipped, the text sent and
+whether the session took it. Every line names the card it answers: the gateway
+logs a submit only when the request carries a card key, and `POST
+/api/agents/<id>/skip` answers 404 for an agent the registry does not name and
+400 without a key. A skip records no text and no outcome, because no session
+saw it. These labels are what teaches lapis what to propose and how to show a
+card; a skip from the phone reaches no agent and only this log. The Mac overlay
+and the gateway both rotate the log by replacing the file with its `.1`
+archive, so neither can destroy the other's archive.
 
 Install it on the phone (unlocked, on the same Wi-Fi as the Mac or on a cable)
 with:
@@ -294,9 +311,8 @@ tests in a headless simulator against real session services and the gateway
 ## Not yet
 
 - Voice on the Mac: holding Option shows the listening state only. The iPhone
-  app dictates with Apple's recognizer behind a small `Transcriber` protocol,
-  so another speech model can replace it.
-- History is kept only while Ultra Tab runs; nothing is searchable later.
+  app leaves voice to the keyboard.
+- The answer log is not searchable from Ultra Tab yet.
 - The overlay does not show composed cards yet; they are written for it.
 - The learned Tab order and other ranking beyond lapis's tiers.
 - Answering requests from the deck.

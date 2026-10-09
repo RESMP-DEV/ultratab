@@ -646,16 +646,6 @@ Item {
                     width: parent.width
                     spacing: 6
                     Text {
-                        objectName: "since"
-                        visible: text.length > 0
-                        width: parent.width
-                        text: root.hasFront ? root.front.since : ""
-                        color: root.dim
-                        font.pixelSize: 13
-                        elide: Text.ElideRight
-                        textFormat: Text.PlainText
-                    }
-                    Text {
                         objectName: "line"
                         width: parent.width
                         text: root.hasFront ? root.front.headline : ""

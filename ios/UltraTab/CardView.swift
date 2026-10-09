@@ -1,7 +1,10 @@
 import SwiftUI
 import WebKit
 
-// One card: who, what happened, the composed blocks and the proposed reply.
+// One card: which agent, what happened, the composed blocks and the proposed
+// reply. Folder, category and when you last looked are left off: the rail
+// shows the category, and the timing is the composer's input for framing the
+// card, not something to read.
 struct CardView: View {
     let card: Card
     let refusal: String?
@@ -21,16 +24,11 @@ struct CardView: View {
                             .background(Theme.skip.opacity(0.12), in: .rect(cornerRadius: 10))
                             .accessibilityIdentifier("refusal")
                     }
-                    if let since = card.composed?.since, !since.isEmpty {
-                        Text(since)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.quiet)
-                            .accessibilityIdentifier("since")
-                    }
                     Text(card.headline)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
+                        .contentShape(Rectangle())
                         .accessibilityIdentifier("headline")
                     ForEach(Array((card.composed?.blocks ?? []).enumerated()), id: \.offset) { _, block in
                         BlockView(block: block)
@@ -40,6 +38,7 @@ struct CardView: View {
                 .padding(20)
             }
             .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.immediately)
             stamps
         }
         .background(Theme.card, in: .rect(cornerRadius: 26))
@@ -54,44 +53,25 @@ struct CardView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle()
-                .fill(card.request ? Theme.skip : Theme.gold)
-                .frame(width: 8, height: 8)
-            Text(card.name)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .accessibilityIdentifier("card-name")
-            Spacer(minLength: 8)
-            Text([card.folder, card.categoryName].filter { !$0.isEmpty }.joined(separator: " · "))
-                .font(.caption.monospaced())
-                .foregroundStyle(Theme.quiet)
-                .lineLimit(1)
-        }
+        Text(card.name)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Theme.quiet)
+            .lineLimit(1)
+            .accessibilityIdentifier("card-name")
     }
 
     @ViewBuilder private var reply: some View {
         if card.request {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("WAITS ON A REQUEST")
-                    .font(.caption2.weight(.bold))
-                    .tracking(1.2)
-                    .foregroundStyle(Theme.skip)
-                Text("Answer it in lapis, which shows the choices. Skipping still works.")
-                    .font(.callout)
-                    .foregroundStyle(Theme.body)
-            }
+            Label("Answer this one in lapis", systemImage: "lock.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(Theme.skip)
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.raised, in: .rect(cornerRadius: 14))
             .accessibilityIdentifier("request")
         } else if !card.proposal.isEmpty {
+            // The gold edge marks the reply a right swipe sends.
             VStack(alignment: .leading, spacing: 6) {
-                Text("PROPOSED REPLY  ·  SWIPE RIGHT TO SEND")
-                    .font(.caption2.weight(.bold))
-                    .tracking(1.2)
-                    .foregroundStyle(Theme.gold)
                 Text(card.proposal)
                     .font(.body.monospaced())
                     .foregroundStyle(.white)
@@ -103,7 +83,8 @@ struct CardView: View {
             .background(Theme.raised, in: .rect(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.gold.opacity(0.45), lineWidth: 1))
         } else {
-            Text("No proposed reply. Dictate or type one below.")
+            // A right swipe would be refused; say where the note goes.
+            Text("No proposed reply. Add a note below.")
                 .font(.callout)
                 .foregroundStyle(Theme.quiet)
                 .accessibilityIdentifier("no-proposal")

@@ -238,19 +238,34 @@ final class SwipeTests: XCTestCase {
 
 // A session service that admits or refuses each paste, as the gateway reports.
 private actor FakeService: Sender {
-    var sent: [(agent: String, text: String)] = []
+    var sent: [(agent: String, text: String, label: AnswerLabel?)] = []
+    var skips: [(agent: String, label: AnswerLabel)] = []
     var refuse: String?
 
     func refuseNext(_ why: String?) { refuse = why }
 
     nonisolated func submit(agentID: String, text: String) async -> String? {
-        await record(agentID, text)
+        await record(agentID, text, nil)
     }
 
-    private func record(_ agent: String, _ text: String) -> String? {
-        sent.append((agent, text))
+    nonisolated func submit(
+        agentID: String, text: String, label: AnswerLabel
+    ) async -> String? {
+        await record(agentID, text, label)
+    }
+
+    nonisolated func skipped(agentID: String, label: AnswerLabel) async {
+        await recordSkip(agentID, label)
+    }
+
+    private func record(_ agent: String, _ text: String, _ label: AnswerLabel?) -> String? {
+        sent.append((agent, text, label))
         defer { refuse = nil }
         return refuse
+    }
+
+    private func recordSkip(_ agent: String, _ label: AnswerLabel) {
+        skips.append((agent, label))
     }
 }
 
@@ -281,8 +296,16 @@ final class SendPathTests: XCTestCase {
 
         XCTAssertEqual(deck.apply(.skip), .skipped)
         XCTAssertEqual(deck.front?.agentID, agentC)
+        await deck.waitForSends()
         let after = await service.sent
         XCTAssertEqual(after.count, 1)
+        let skips = await service.skips
+        XCTAssertEqual(skips.count, 1)
+        XCTAssertEqual(skips.first?.agent, agentB)
+        XCTAssertEqual(
+            skips.first?.label,
+            AnswerLabel(key: "g", how: "skipped", proposal: "run the sweep")
+        )
         XCTAssertNil(deck.apply(.none))
     }
 
@@ -307,6 +330,7 @@ final class SendPathTests: XCTestCase {
         let service = FakeService()
         let deck = makeDeck(service)
         deck.skip()
+        await deck.waitForSends()
         XCTAssertEqual(deck.front?.agentID, agentB)
         XCTAssertEqual(deck.accept(), .refused("No proposed reply; dictate or type one"))
         XCTAssertEqual(deck.send("   "), .refused("Nothing to send"))
@@ -321,14 +345,20 @@ final class SendPathTests: XCTestCase {
         let service = FakeService()
         let deck = makeDeck(service)
         deck.skip()
+        await deck.waitForSends()
         deck.skip()
+        await deck.waitForSends()
         XCTAssertEqual(deck.front?.agentID, agentC)
         XCTAssertEqual(deck.accept(), .refused("Answer this request in lapis; skip it here"))
         XCTAssertEqual(deck.send("yes"), .refused("Answer this request in lapis; skip it here"))
         XCTAssertEqual(deck.skip(), .skipped)
+        await deck.waitForSends()
         XCTAssertNil(deck.front)
         let sent = await service.sent
         XCTAssertTrue(sent.isEmpty)
+        let skips = await service.skips
+        XCTAssertEqual(skips.count, 3)
+        XCTAssertEqual(skips.map(\.label.how), ["skipped", "skipped", "skipped"])
     }
 
     func testAnAnsweredCardStaysAwayUntilTheAgentHasSomethingNew() {
@@ -341,6 +371,21 @@ final class SendPathTests: XCTestCase {
         deck.setPublished(published(states: [["id": agentA, "status": "finished", "unseen": true,
                                                "neededAtMs": 1, "turnAtMs": 2]]))
         XCTAssertEqual(deck.front?.agentID, agentA)
+    }
+
+    // Every answer carries its card, so the Mac's answer log names it.
+    func testEachAnswerAndSkipCarriesItsCardLabel() async {
+        let service = FakeService()
+        let deck = makeDeck(service)
+        deck.accept()
+        await deck.waitForSends()
+        deck.skip()
+        await deck.waitForSends()
+        let sent = await service.sent
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertEqual(sent[0].label?.key, "g")
+        XCTAssertEqual(sent[0].label?.how, "accepted")
+        XCTAssertEqual(sent[0].label?.proposal, "run the sweep")
     }
 
     func testCategoriesFilterTheDeck() {

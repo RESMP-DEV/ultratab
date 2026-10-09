@@ -3,6 +3,7 @@
 #include "published.hpp"
 
 #include <QHash>
+#include <QJsonObject>
 #include <QMutex>
 #include <QObject>
 #include <QSet>
@@ -58,7 +59,8 @@ class DiagramStore {
 
 // Sends text to an agent's session as if typed and submitted with Return.
 // `done` runs once, on the caller's thread, with whether the agent's
-// session service admitted it and a reason when it did not.
+// session service admitted it and a reason when it did not. A receiver must
+// not retain the answer record by reference beyond that one call.
 class Sender {
   public:
     using Done = std::function<void(bool admitted, const QString& message)>;
@@ -93,6 +95,11 @@ class Deck final : public QObject {
     void setPublished(const Published& published);
     // Whether the window that publishes the state still runs (a test seam).
     void setWriterCheck(std::function<bool(qint64)> running) { running_ = std::move(running); }
+    // Where each answer is recorded once it is settled: the card's agent and
+    // key, what it proposed, how it was answered (accepted, annotated or
+    // skipped), the text sent and whether the session took it. A skip has no
+    // text or outcome: it reaches no session, so there was nothing to take.
+    void setAnswerLog(std::function<void(const QJsonObject&)> log) { log_ = std::move(log); }
     // How a link is opened (a test seam; default: the system's handler).
     void setLinkOpener(std::function<void(const QUrl&)> opener) { opener_ = std::move(opener); }
     [[nodiscard]] const std::shared_ptr<DiagramStore>& diagrams() const { return diagrams_; }
@@ -165,6 +172,7 @@ class Deck final : public QObject {
     bool listening_{};
     std::function<bool(qint64)> running_;
     std::function<void(const QUrl&)> opener_;
+    std::function<void(const QJsonObject&)> log_;
     std::shared_ptr<DiagramStore> diagrams_{std::make_shared<DiagramStore>()};
 };
 } // namespace lapis::ultratab

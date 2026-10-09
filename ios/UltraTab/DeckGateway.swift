@@ -82,10 +82,23 @@ struct DeckGateway: Sender {
     }
 
     func submit(agentID: String, text: String) async -> String? {
-        var request = request("api/agents/\(agentID)/submit")
+        await post("api/agents/\(agentID)/submit", ["text": text])
+    }
+
+    func submit(agentID: String, text: String, label: AnswerLabel) async -> String? {
+        await post("api/agents/\(agentID)/submit",
+                   ["text": text, "key": label.key, "how": label.how, "proposal": label.proposal])
+    }
+
+    func skipped(agentID: String, label: AnswerLabel) async {
+        _ = await post("api/agents/\(agentID)/skip", ["key": label.key, "proposal": label.proposal])
+    }
+
+    private func post(_ path: String, _ body: [String: String]) async -> String? {
+        var request = request(path)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         do {
             let (data, response) = try await session.data(for: request)
             try DeckGateway.check(response, data)

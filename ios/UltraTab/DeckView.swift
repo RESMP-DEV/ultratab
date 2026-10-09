@@ -1,8 +1,10 @@
 import SwiftUI
 
 // The deck: categories on top, one card in front with the next peeking
-// behind, and the three answers below it. Swipe right sends the proposed
-// reply, swipe left skips, and the voice button annotates.
+// behind, and the note field below it. Swipe right sends the proposed reply,
+// swipe left skips. Nothing else: the app's name, a count and settings earn no
+// space on a screen read in seconds; settings open from the notice or the
+// empty deck, where a connection problem shows.
 struct DeckView: View {
     @Environment(DeckStore.self) private var store
     @Environment(Deck.self) private var deck
@@ -12,23 +14,32 @@ struct DeckView: View {
     @State private var drag: CGSize = .zero
     @State private var leaving: Double = 0 // the answered card's slide
     @State private var settings = false
+    @FocusState private var typing: Bool
+    @AppStorage("tutorialSeen") private var tutorialSeen = false
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar
             rail
+                .padding(.top, 6)
             if !deck.notice.isEmpty {
-                Text(deck.notice)
+                Button(action: openSettings) {
+                    HStack(spacing: 6) {
+                        Text(deck.notice)
+                        Image(systemName: "gearshape")
+                    }
                     .font(.footnote)
                     .foregroundStyle(Theme.quiet)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 6)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("notice")
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 6)
+                .accessibilityIdentifier("notice")
             }
             stack
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
+                // Touching the card puts the keyboard away.
+                .simultaneousGesture(TapGesture().onEnded { typing = false })
             Text(deck.message)
                 .font(.footnote)
                 .foregroundStyle(deck.message.hasPrefix("Not sent") ? Theme.skip : Theme.quiet)
@@ -37,36 +48,23 @@ struct DeckView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 4)
                 .accessibilityIdentifier("message")
-            AnnotateBar(answer: answer)
+            AnnotateBar(send: { answer(text: $0) }, typing: $typing)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
         }
         .background(Theme.background.ignoresSafeArea())
+        .overlay {
+            if !tutorialSeen { Tutorial { tutorialSeen = true } }
+        }
         .sheet(isPresented: $settings) { SettingsSheet() }
         .onChange(of: phase, initial: true) { _, now in
             if now == .active { store.follow() } else { store.pause() }
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.right.to.line")
-                .font(.headline.weight(.heavy))
-                .foregroundStyle(Theme.gold)
-            Text("Ultra Tab")
-                .font(.headline)
-            Spacer()
-            Text(deck.visible.isEmpty ? "" : "\(deck.visible.count) waiting")
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(Theme.quiet)
-                .accessibilityIdentifier("count")
-            Button { settings = true } label: {
-                Image(systemName: "gearshape").foregroundStyle(Theme.quiet)
-            }
-            .accessibilityIdentifier("settings")
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+    private func openSettings() {
+        typing = false
+        settings = true
     }
 
     private var rail: some View {
@@ -79,8 +77,13 @@ struct DeckView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Text(entry.name)
+                            // Something waits here; how many is not the point,
+                            // but a person who cannot see the dot still hears it.
                             if entry.count > 0 {
-                                Text("\(entry.count)").monospacedDigit().foregroundStyle(Theme.gold)
+                                Circle()
+                                    .fill(Theme.gold)
+                                    .frame(width: 6, height: 6)
+                                    .accessibilityLabel("\(entry.count) waiting")
                             }
                         }
                         .font(.footnote.weight(selected ? .semibold : .regular))
@@ -144,6 +147,12 @@ struct DeckView: View {
                 }
                 .padding(.top, 10)
             }
+            Button(action: openSettings) {
+                Image(systemName: "gearshape").foregroundStyle(Theme.quiet)
+            }
+            .padding(.top, 16)
+            .accessibilityLabel("Settings")
+            .accessibilityIdentifier("settings")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -194,165 +203,113 @@ struct DeckView: View {
         return true
     }
 
-    // The annotate button and the typed field act on the front card too.
+    // The note field acts on the front card too.
     private func answer(text: String) -> Bool {
         if case .sending = deck.send(text) { return true }
         return false
     }
-
-    private var answer: AnnotateBar.Actions {
-        AnnotateBar.Actions(
-            skip: { answer(.skip) },
-            accept: { answer(.accept) },
-            send: { answer(text: $0) })
-    }
 }
 
-// Below the card: the annotation field, the big voice button between Skip
-// and Send-proposal, and Send for the annotation. Tap the voice button to
-// start and again to stop, or hold it while speaking; the words land in the
-// field, editable, and nothing is sent until Send.
+// Below the card: the note field. Typing (or the keyboard's own dictation,
+// such as Wispr Flow) lands here, editable; nothing is sent until the arrow.
+// Accept and skip are the card's swipes, so there are no buttons for them.
 struct AnnotateBar: View {
-    struct Actions {
-        let skip: () -> Void
-        let accept: () -> Void
-        let send: (String) -> Bool
-    }
-
-    let answer: Actions
-    @Environment(DeckStore.self) private var store
+    let send: (String) -> Bool
+    // Owned by the deck, so touching the card or opening settings puts the
+    // keyboard away and nothing brings it back on its own.
+    var typing: FocusState<Bool>.Binding
     @Environment(Deck.self) private var deck
     @State private var text = ""
-    @State private var listening = false
-    @State private var heldSince: Date?
-    @State private var before = "" // the field's text when listening began
-    @FocusState private var typing: Bool
 
     var body: some View {
         let front = deck.front
-        VStack(spacing: 10) {
-            HStack(alignment: .bottom, spacing: 8) {
-                TextField(listening ? "Listening…" : "Annotate: hold the mic or type",
-                          text: $text, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($typing)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Theme.raised, in: .rect(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18)
-                        .strokeBorder(listening ? Theme.gold : Theme.edge, lineWidth: 1))
-                    .accessibilityIdentifier("annotation")
-                if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Button {
-                        stopListening()
-                        if answer.send(text) {
-                            text = ""
-                            typing = false
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.system(size: 34))
-                            .foregroundStyle(Theme.gold)
-                    }
-                    .disabled(front?.canType != true)
-                    .accessibilityLabel("Send annotation")
-                    .accessibilityIdentifier("send")
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("Add a note", text: $text, axis: .vertical)
+                .lineLimit(1...5)
+                .focused(typing)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Theme.raised, in: .rect(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.edge, lineWidth: 1))
+                .disabled(front?.canType != true)
+                .accessibilityIdentifier("annotation")
+            if typing.wrappedValue {
+                Button {
+                    typing.wrappedValue = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Theme.quiet)
+                        .frame(width: 34, height: 40)
                 }
+                .accessibilityLabel("Hide the keyboard")
+                .accessibilityIdentifier("hide-keyboard")
             }
-            HStack {
-                Button(action: answer.skip) {
-                    Label("Skip", systemImage: "arrow.left")
-                        .labelStyle(.titleAndIcon)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(Theme.skip)
-                        .frame(width: 96, height: 44)
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    if send(text) {
+                        text = ""
+                        typing.wrappedValue = false
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(Theme.gold)
                 }
-                .disabled(front == nil)
-                .accessibilityIdentifier("skip")
-                Spacer()
-                mic(enabled: front?.canType == true)
-                Spacer()
-                Button(action: answer.accept) {
-                    Label("Send", systemImage: "arrow.right")
-                        .labelStyle(.titleAndIcon)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(front?.canAccept == true ? Theme.accept : Theme.quiet)
-                        .frame(width: 96, height: 44)
-                }
-                .disabled(front?.canAccept != true)
-                .accessibilityLabel("Send the proposed reply")
-                .accessibilityIdentifier("accept")
+                .disabled(front?.canType != true)
+                .accessibilityLabel("Send note")
+                .accessibilityIdentifier("send")
             }
         }
         .onChange(of: front?.key) { _, _ in
             // A note is for the card it was written on; a refused send keeps
             // the same key, so the draft stays for another try.
-            stopListening()
             text = ""
         }
     }
+}
 
-    private func mic(enabled: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(listening ? Theme.gold : Theme.raised)
-                .frame(width: 84, height: 84)
-                .overlay(Circle().strokeBorder(Theme.gold, lineWidth: 2))
-                .shadow(color: listening ? Theme.gold.opacity(0.5) : .clear, radius: 14)
-            Image(systemName: listening ? "waveform" : "mic.fill")
-                .font(.system(size: 32, weight: .semibold))
-                .foregroundStyle(listening ? Color.black : Theme.gold)
-                .symbolEffect(.variableColor.iterative, isActive: listening)
+// Shown once, at the first launch: the two swipes and the note field.
+struct Tutorial: View {
+    let done: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("Each card is an agent waiting on you.")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .accessibilityIdentifier("tutorial")
+            row("arrow.right", Theme.accept, "Swipe right", "sends the proposed reply")
+            row("arrow.left", Theme.skip, "Swipe left", "skips it; nothing is sent")
+            row("square.and.pencil", Theme.gold, "Add a note", "type or dictate your own reply")
+            Button(action: done) {
+                Text("Got it")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .background(Theme.gold, in: .rect(cornerRadius: 14))
+            }
+            .accessibilityIdentifier("tutorial-done")
         }
-        .opacity(enabled ? 1 : 0.35)
-        .contentShape(Circle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    guard enabled, heldSince == nil else { return }
-                    heldSince = .now
-                    if listening { stopListening() } else { startListening() }
-                }
-                .onEnded { _ in
-                    // A hold stops at release; a tap keeps listening until
-                    // the next tap.
-                    if let since = heldSince, Date.now.timeIntervalSince(since) > 0.4, listening {
-                        stopListening()
-                    }
-                    heldSince = nil
-                })
-        .accessibilityElement()
-        .accessibilityLabel(listening ? "Stop dictating" : "Dictate an annotation")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction {
-            guard enabled else { return }
-            if listening { stopListening() } else { startListening() }
-        }
-        .accessibilityIdentifier("mic")
+        .padding(28)
+        .background(Theme.card, in: .rect(cornerRadius: 26))
+        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(Theme.edge, lineWidth: 1))
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.6).ignoresSafeArea())
     }
 
-    private func startListening() {
-        before = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        listening = true
-        typing = false
-        Task {
-            await store.transcriber.start(
-                text: { heard in
-                    guard listening else { return }
-                    text = before.isEmpty ? heard : before + " " + heard
-                },
-                failed: { why in
-                    listening = false
-                    store.transcriber.stop()
-                    deck.say(why)
-                })
+    private func row(_ symbol: String, _ color: Color, _ title: String, _ detail: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(color)
+                .frame(width: 34)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline).foregroundStyle(.white)
+                Text(detail).font(.callout).foregroundStyle(Theme.body)
+            }
         }
-    }
-
-    private func stopListening() {
-        guard listening else { return }
-        listening = false
-        store.transcriber.stop()
     }
 }
 

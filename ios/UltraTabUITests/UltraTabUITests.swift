@@ -16,7 +16,8 @@ final class UltraTabUITests: XCTestCase {
 
     private func launch(_ extra: [String] = []) {
         app = XCUIApplication()
-        app.launchArguments = ["-gatewayHost", host, "-scriptedSpeech", "Make the arrows gold"] + extra
+        app.launchArguments = ["-gatewayHost", host] + (extra.isEmpty || extra.first != "-resetTutorial"
+            ? ["-tutorialSeen", "YES"] : []) + extra
         app.launch()
     }
 
@@ -51,11 +52,30 @@ final class UltraTabUITests: XCTestCase {
     func testDeal() throws {
         launch()
         waitForFront("kernels")
-        for block in ["block-text", "block-list", "block-table", "proposal", "since"] {
+        for block in ["block-text", "block-list", "block-table", "proposal"] {
             XCTAssertTrue(element(block).waitForExistence(timeout: 5), "kernels shows \(block)")
         }
-        XCTAssertEqual(element("count").label, "4 waiting")
+        // The card is the screen: no title bar, count or since line.
+        for gone in ["count", "since", "settings"] {
+            XCTAssertFalse(element(gone).exists, "\(gone) is not shown over a card")
+        }
         snap("1-card-text-list-table")
+
+        // The keyboard comes up for the annotation and goes away on request.
+        // (the hide button shows exactly while the field has focus).
+        element("annotation").tap()
+        XCTAssertTrue(element("hide-keyboard").waitForExistence(timeout: 5), "typing focuses the field")
+        element("hide-keyboard").tap()
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                               object: element("hide-keyboard"))
+        XCTAssertEqual(XCTWaiter().wait(for: [hidden], timeout: 5), .completed, "the keyboard hides")
+        // Touching the card puts it away too.
+        element("annotation").tap()
+        XCTAssertTrue(element("hide-keyboard").waitForExistence(timeout: 5))
+        element("headline").tap()
+        let away = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                             object: element("hide-keyboard"))
+        XCTAssertEqual(XCTWaiter().wait(for: [away], timeout: 5), .completed, "a touch on the card hides it")
 
         // Swipe right: the proposed reply goes to kernels (the check reads
         // it on the Mac side) and the next card comes forward.
@@ -64,8 +84,12 @@ final class UltraTabUITests: XCTestCase {
         for block in ["block-diagram", "block-text", "block-link"] {
             XCTAssertTrue(element(block).waitForExistence(timeout: 5), "docs shows \(block)")
         }
-        XCTAssertTrue(element("no-proposal").exists)
-        XCTAssertFalse(element("accept").isEnabled)
+        XCTAssertFalse(element("proposal").exists, "no proposed reply, no reply box")
+        XCTAssertTrue(element("no-proposal").waitForExistence(timeout: 5),
+                      "a card with no proposal says where a note goes")
+        for gone in ["accept", "skip", "mic"] {
+            XCTAssertFalse(element(gone).exists, "no \(gone) button: the swipes answer")
+        }
         let message = element("message")
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         let sent = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "Sent to kernels"),
@@ -74,24 +98,16 @@ final class UltraTabUITests: XCTestCase {
         sleep(1) // the diagram's image finishes drawing
         snap("2-card-diagram-text-link")
 
-        // Annotate: dictate (scripted on the simulator), edit, then send.
-        let mic = element("mic")
-        mic.tap()
+        // A note: typed (the keyboard's own dictation lands the same way).
         let field = element("annotation")
-        let heard = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "Make the arrows gold"), object: field)
-        XCTAssertEqual(XCTWaiter().wait(for: [heard], timeout: 10), .completed, "dictation fills the field")
-        mic.tap() // stop listening
-        // Edit at the end of what was heard, as a person taps after it.
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
-        field.typeText(" please")
+        field.tap()
+        field.typeText("Make the arrows gold please")
         snap("3-annotate")
         element("send").tap()
         waitForFront("approve")
 
         // A request takes no answer here; it can be skipped.
         XCTAssertTrue(element("request").exists)
-        XCTAssertFalse(element("accept").isEnabled)
         snap("4-card-request")
         swipeCard(right: true) // springs back
         waitForFront("approve")
@@ -105,9 +121,20 @@ final class UltraTabUITests: XCTestCase {
         waitForFront("parked")
         snap("5-refused")
 
-        element("skip").tap()
+        swipeCard(right: false)
         XCTAssertTrue(element("empty").waitForExistence(timeout: 5))
         snap("6-empty")
+    }
+
+    // The first launch explains the swipes once.
+    func testTutorial() throws {
+        launch(["-resetTutorial", "YES"])
+        XCTAssertTrue(element("tutorial").waitForExistence(timeout: 10))
+        snap("0-tutorial")
+        element("tutorial-done").tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
+                                             object: element("tutorial"))
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "Got it puts it away")
     }
 
     // The front card held mid-swipe, for the captures.

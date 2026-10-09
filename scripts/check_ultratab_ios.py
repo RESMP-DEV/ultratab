@@ -10,8 +10,8 @@ Starts, all disposable and on this Mac:
   with every block type (text, list, table, diagram, link),
 - the gateway (apps/remote/lapis_remote.py) on 127.0.0.1 with --allow-local.
 
-Then it runs the UltraTabUITests (deal the deck, swipe, dictate with a
-scripted transcriber, a refused send, swipe poses) and the UltraTabTests
+Then it runs the UltraTabUITests (deal the deck, swipe, a
+typed note, a refused send, the first-run tutorial, swipe poses) and the UltraTabTests
 unit bundle on a headless simulator (no Simulator window), checks that the
 Mac-side clients received exactly the phone's answers and were never
 replaced or resized, and exports the screenshots to
@@ -593,6 +593,26 @@ def start_gateway(run, runtime):
         time.sleep(0.1)
 
 
+def wait_for_answers(path, count, timeout=5.0, interval=0.2):
+    """Poll until `count` complete answer rows arrive; returns what is there."""
+    answers = []
+    deadline = time.monotonic() + timeout
+    while True:
+        if path.exists():
+            try:
+                answers = [
+                    json.loads(line)
+                    for line in path.read_text().splitlines()
+                    if line.strip()
+                ]
+            except (OSError, ValueError):
+                # A cross-process append can be seen mid-line; poll again.
+                answers = []
+        if len(answers) >= count or time.monotonic() >= deadline:
+            return answers
+        time.sleep(interval)
+
+
 def name_screens(screens):
     """Give each exported screenshot the name the test gave it."""
     manifest = screens / "manifest.json"
@@ -704,6 +724,22 @@ def ui_check(args, udid, stamp, results):
                 ok = False
             if dealt and got != [expected[name]]:
                 ok = False
+        # Every answer, skips included, lands in the Mac's answer log. Poll
+        # until the last fire-and-forget skip reaches the gateway.
+        log = runtime / lapis_remote.ANSWERS_FILE
+        answers = wait_for_answers(log, 5) if dealt else wait_for_answers(log, 0, 0)
+        hows = [(row.get("how"), row.get("outcome")) for row in answers]
+        print(f"answer log: {hows}")
+        if dealt and hows != [
+            ("accepted", "sent"),
+            ("annotated", "sent"),
+            ("skipped", None),
+            ("accepted", "refused"),
+            ("skipped", None),
+        ]:
+            ok = False
+        if any(not row.get("key") for row in answers):
+            ok = False
         print(f"results {result}\nscreens {screens}")
         return outcome or (0 if ok else 1)
     finally:

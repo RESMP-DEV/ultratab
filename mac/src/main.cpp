@@ -13,6 +13,7 @@
 
 #include <QCommandLineParser>
 #include <QCursor>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QElapsedTimer>
@@ -26,7 +27,11 @@
 #include <QTextStream>
 #include <QTimer>
 #include <algorithm>
+#include <cerrno>
+#include <fcntl.h>
 #include <optional>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <utility>
 
 namespace {
@@ -60,6 +65,49 @@ int print_deck(const QString& home) {
             << ")\n";
     out << published.agents.size() << " agents in the registry\n";
     return 0;
+}
+
+// One answer per line in runtime/ultratab_answers.jsonl, owner-only, the
+// same file the phone gateway appends to; past 16 MB it moves to `.1`.
+void log_answer(const QString& path, QJsonObject answer) {
+    constexpr qint64 limit = qint64{16} * 1024 * 1024;
+    answer.insert(QStringLiteral("t"), QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    answer.insert(QStringLiteral("from"), QStringLiteral("mac"));
+    const auto line = QJsonDocument(answer).toJson(QJsonDocument::Compact) + '\n';
+    const auto encoded = QFile::encodeName(path);
+    struct stat existing{};
+    // The phone gateway owns this file too. Never follow a link, and rotate
+    // only a regular file; ::rename replaces the previous archive atomically,
+    // so it cannot delete an archive another writer just moved into place.
+    if (::lstat(encoded.constData(), &existing) == 0) {
+        if (!S_ISREG(existing.st_mode)) {
+            qWarning().noquote() << "Ultra Tab: answer log is not a regular file:" << path;
+            return;
+        }
+        if (qint64(existing.st_size) + line.size() > limit) {
+            const auto archive = QFile::encodeName(path + QStringLiteral(".1"));
+            if (::rename(encoded.constData(), archive.constData()) != 0) {
+                qWarning().noquote() << "Ultra Tab: answers not rotated:" << qt_error_string(errno);
+            }
+        }
+    }
+    // Owner-only from creation, without the window an open-then-chmod leaves.
+    const int fd = ::open(encoded.constData(), O_WRONLY | O_APPEND | O_CREAT | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        qWarning().noquote() << "Ultra Tab: answer not logged:" << qt_error_string(errno);
+        return;
+    }
+    QFile file;
+    if (!file.open(fd, QIODevice::WriteOnly | QIODevice::Append, QFileDevice::AutoCloseHandle)) {
+        qWarning().noquote() << "Ultra Tab: answer not logged:" << file.errorString();
+        return;
+    }
+    if (::fchmod(fd, 0600) != 0) {
+        qWarning().noquote() << "Ultra Tab: answer log not owner-only:" << qt_error_string(errno);
+    }
+    if (file.write(line) != line.size() || !file.flush()) {
+        qWarning().noquote() << "Ultra Tab: answer not written:" << file.errorString();
+    }
 }
 
 class Overlay final {
@@ -208,6 +256,10 @@ int main(int argc, char** argv) {
     PublishedSource source(home.isEmpty() ? QString()
                                           : QDir(home).filePath(QStringLiteral("runtime")));
     QObject::connect(&source, &PublishedSource::loaded, &deck, &Deck::setPublished);
+    if (!source.runtime().isEmpty())
+        deck.setAnswerLog(
+            [path = QDir(source.runtime()).filePath(QStringLiteral("ultratab_answers.jsonl"))](
+                const QJsonObject& answer) { log_answer(path, answer); });
 
     // Composed cards: runtime/ultratab_cards.json, beside what lapis publishes.
     const auto& runtime = source.runtime();

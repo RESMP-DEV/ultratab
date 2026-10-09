@@ -39,10 +39,6 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Ultra Tab connects to the lapis gateway on your Mac over Tailscale or ZeroTier.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Ultra Tab listens while you hold the voice button to dictate an annotation.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Ultra Tab turns what you say into an annotation for an agent; recognition stays on this iPhone when it can.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

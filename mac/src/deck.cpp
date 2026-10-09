@@ -348,24 +348,36 @@ bool Deck::answer(const Card& card, const QString& how, const QString& text) {
     remember({id, card.name, how, text, QStringLiteral("sending")});
     message_ = QStringLiteral("Sending to %1").arg(card.name);
     emit changed();
-    sender_.submit(*target, text,
-                   [deck = QPointer<Deck>(this), id, key = card.key,
-                    name = card.name](bool admitted, const QString& why) {
-                       if (!deck)
-                           return;
-                       for (auto& entry : deck->history_)
-                           if (entry.id == id)
-                               entry.outcome =
-                                   admitted ? QStringLiteral("sent") : QStringLiteral("not sent");
-                       if (admitted) {
-                           deck->message_ = QStringLiteral("Sent to %1").arg(name);
-                       } else {
-                           // The card comes back for another answer.
-                           deck->answered_.remove(key);
-                           deck->message_ = QStringLiteral("Not sent to %1: %2").arg(name, why);
-                       }
-                       emit deck->changed();
-                   });
+    // The Mac and the phone name a typed reply the same way in the log.
+    QJsonObject record{
+        {QStringLiteral("agent"), card.agent_id},
+        {QStringLiteral("key"), card.key},
+        {QStringLiteral("how"), how == QLatin1String("typed") ? QStringLiteral("annotated") : how},
+        {QStringLiteral("proposal"), card.proposal},
+        {QStringLiteral("text"), text}};
+    sender_.submit(
+        *target, text,
+        [deck = QPointer<Deck>(this), id, key = card.key, name = card.name,
+         record = std::move(record)](bool admitted, const QString& why) mutable {
+            if (!deck)
+                return;
+            if (deck->log_) {
+                record.insert(QStringLiteral("outcome"),
+                              admitted ? QStringLiteral("sent") : QStringLiteral("refused"));
+                deck->log_(record);
+            }
+            for (auto& entry : deck->history_)
+                if (entry.id == id)
+                    entry.outcome = admitted ? QStringLiteral("sent") : QStringLiteral("not sent");
+            if (admitted) {
+                deck->message_ = QStringLiteral("Sent to %1").arg(name);
+            } else {
+                // The card comes back for another answer.
+                deck->answered_.remove(key);
+                deck->message_ = QStringLiteral("Not sent to %1: %2").arg(name, why);
+            }
+            emit deck->changed();
+        });
     return true;
 }
 
@@ -415,6 +427,11 @@ bool Deck::skip() {
     const auto& card = shown.front();
     answered_.insert(card.key);
     remember({++answers_, card.name, QStringLiteral("skipped"), {}, QStringLiteral("skipped")});
+    if (log_)
+        log_({{QStringLiteral("agent"), card.agent_id},
+              {QStringLiteral("key"), card.key},
+              {QStringLiteral("how"), QStringLiteral("skipped")},
+              {QStringLiteral("proposal"), card.proposal}});
     message_.clear();
     emit changed();
     return true;

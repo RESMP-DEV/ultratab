@@ -253,7 +253,9 @@ class ValidationTest(Fixture):
         self.assertTrue(out["ok"])
         card = out["card"]
         self.assertEqual(card["key"], "turn:1")
-        self.assertEqual(card["since"], "You last looked 3 h ago; 2 turns since")
+        self.assertEqual(
+            card["since"], "You last looked 3 h ago; 2 turns since"
+        )  # framing data, not shown by either renderer
         self.assertEqual(card["blocks"][0]["rows"][1], ["small", "3"])
         self.assertEqual(card["blocks"][1]["type"], "link")
         self.assertEqual(card["prompt"], "ship big")
