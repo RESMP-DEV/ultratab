@@ -480,7 +480,8 @@ void answersAreLogged() {
     // A skip is logged at once, with its card and nothing sent: no text and
     // no session outcome, because no session ever saw it.
     require(deck.skip(), "skip accepted");
-    require(logged.size() == 3, "skip logged");
+    if (logged.size() != 3)
+        throw std::runtime_error("skip logged");
     const auto& skip = logged.at(2);
     require(skip.value(QStringLiteral("how")) == QLatin1String("skipped"), "skip how");
     require(skip.value(QStringLiteral("agent")) == id('b'), "skip agent");
