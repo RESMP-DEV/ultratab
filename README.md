@@ -137,7 +137,7 @@ a local OpenAI-compatible server (`/chat/completions`) instead, for example a
 local Qwen model. It is off unless set. `"enabled": false` stops composing.
 `"onlyWhileOpen": false` composes for every waiting agent in the background
 too, so cards are ready before you open the overlay; it is off because almost
-none of those cards were ever read (October 8 to 10: 497 compositions, two
+none of those cards were ever read (October 7 to 11: 500 cards composed, two
 answers).
 
 Cards are written to `runtime/ultratab_cards.json` (owner-only, replaced
