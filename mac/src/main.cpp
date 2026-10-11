@@ -88,6 +88,14 @@ void log_answer(const QString& path, QJsonObject answer) {
         }
         if (qint64(existing.st_size) + line.size() > limit) {
             const auto archive = QFile::encodeName(path + QStringLiteral(".1"));
+            // Answers are labels: an older archive moves aside under its date
+            // rather than being replaced.
+            const auto dated = QFile::encodeName(
+                path + QDateTime::currentDateTimeUtc().toString(
+                           QStringLiteral("'.'yyyyMMdd-HHmmss")));
+            struct stat older{};
+            if (::lstat(archive.constData(), &older) == 0 && S_ISREG(older.st_mode))
+                static_cast<void>(::rename(archive.constData(), dated.constData()));
             if (::rename(encoded.constData(), archive.constData()) != 0) {
                 qWarning().noquote() << "Ultra Tab: answers not rotated:" << qt_error_string(errno);
             }
