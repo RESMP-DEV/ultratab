@@ -55,6 +55,13 @@ Item {
     readonly property var queue: deck.queue
     readonly property bool hasFront: front.key !== undefined
     readonly property bool typing: entry.text.length > 0 || entry.inputMethodComposing
+    // Tab types the front card's proposal and a second Tab sends it, as in
+    // lapis. The fill belongs to the card it was made for: a Tab can only send
+    // a proposal that is on screen, typed out, unchanged.
+    property string filledKey: ""
+    property string filledText: ""
+    readonly property bool filledUnchanged: hasFront && filledKey === front.key
+                                            && filledText.length > 0 && entry.text === filledText
                                    || pushing
     property alias typed: entry.text
     // The card being typed to stays in front until the text is sent or cleared.
@@ -712,7 +719,7 @@ Item {
                     anchors.rightMargin: 16
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: 6
-                    Keycap { visible: !root.typing && root.hasFront && root.front.canAccept; glyph: "⇥"; accent: root.green; lit: root.flash === "tab" }
+                    Keycap { visible: (!root.typing || root.filledUnchanged) && root.hasFront && root.front.canAccept; glyph: "⇥"; accent: root.green; lit: root.flash === "tab" }
                     Keycap { visible: !root.typing; glyph: "←"; accent: root.red; lit: root.flash === "left" }
                     Keycap { visible: root.typing && !root.pushing; glyph: "↵"; accent: root.green }
                     Keycap { visible: root.typing && root.hasFront && root.front.canType; glyph: "⌘↵"; accent: root.needsColor; lit: root.pushing }
@@ -1003,6 +1010,16 @@ Item {
         arrive.restart()
     }
 
+    // The typed-out proposal, unchanged, goes as the card's own answer.
+    function acceptFilled() {
+        leaving(1)
+        if (deck.accept()) {
+            filledKey = ""
+            filledText = ""
+            entry.text = ""
+        }
+    }
+
     function openInLapis() {
         if (deck.openInLapis())
             deck.dismiss()
@@ -1069,11 +1086,17 @@ Item {
                 hint = "This card has no link to open."
             event.accepted = true
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-            if (empty && bare) {
-                light("tab")
-                if (front.canAccept)
-                    leaving(1)
-                deck.accept()
+            if (bare && hasFront && front.canAccept) {
+                if (empty) {
+                    light("tab")
+                    filledKey = front.key
+                    filledText = front.proposal
+                    entry.text = front.proposal
+                    entry.cursorPosition = entry.text.length
+                } else if (filledUnchanged) {
+                    light("tab")
+                    acceptFilled()
+                }
             }
             event.accepted = true
         } else if ((event.key === Qt.Key_Left || event.key === Qt.Key_Backspace)
@@ -1084,10 +1107,14 @@ Item {
             event.accepted = true
         } else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
                    && !entry.inputMethodComposing) {
-            if (hasFront && front.canType && entry.text.trim().length > 0)
-                leaving(1)
-            if (deck.send(entry.text))
-                entry.text = ""
+            if (filledUnchanged) {
+                acceptFilled()
+            } else {
+                if (hasFront && front.canType && entry.text.trim().length > 0)
+                    leaving(1)
+                if (deck.send(entry.text))
+                    entry.text = ""
+            }
             event.accepted = true
         } else if (event.key === Qt.Key_Escape) {
             if (empty)

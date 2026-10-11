@@ -353,7 +353,11 @@ void overlayAnswersEveryCard() {
                 name->property("text").toString() == QLatin1String("persist GUI state"),
             "Command-O opens the first link and keeps the card");
 
-    // Tab: the proposed reply goes to the front agent.
+    // Tab types the proposal out; a second Tab sends it to the front agent.
+    key(view, Qt::Key_Tab);
+    require(sender.sent.empty() &&
+                entry->property("text").toString() == QLatin1String("merge it and install the build"),
+            "one Tab types the proposal and sends nothing");
     key(view, Qt::Key_Tab);
     require(sender.sent.size() == 1 && sender.sent[0].agent == id(0) &&
                 sender.sent[0].text == QLatin1String("merge it and install the build"),
@@ -427,8 +431,8 @@ void overlayAnswersEveryCard() {
     key(view, Qt::Key_Escape);
     require(dismissed && sender.sent.size() == 2, "Escape with nothing typed puts it away");
 }
-// With motion on, answers still land at once: two Tabs in a row reach two
-// agents without waiting for the slide.
+// With motion on, answers still land at once, but each send takes its own
+// card's two Tabs, so a fast double Tab cannot answer the card arriving.
 void motionNeverDelaysInput() {
     QTemporaryDir directory;
     require(directory.isValid(), "fixture directory");
@@ -447,9 +451,15 @@ void motionNeverDelaysInput() {
             "typing goes to the overlay's entry");
     key(view, Qt::Key_Tab);
     key(view, Qt::Key_Tab);
-    require(sender.sent.size() == 2 && sender.sent[0].agent == id(0) &&
-                sender.sent[1].agent == id(1),
-            "a second Tab during the slide answers the next card");
+    require(sender.sent.size() == 1 && sender.sent[0].agent == id(0),
+            "two Tabs answer the card that was on screen");
+    // A third, during the slide, only types the next card's proposal out:
+    // nothing reaches an agent whose card was never read.
+    key(view, Qt::Key_Tab);
+    require(sender.sent.size() == 1, "a quick Tab never sends the arriving card");
+    key(view, Qt::Key_Tab);
+    require(sender.sent.size() == 2 && sender.sent[1].agent == id(1),
+            "keys still act at once: the next pair answers the next card");
     // Mid-slide, for a person to see the motion's shape.
     settle(60);
     const auto image = view.grabWindow();
