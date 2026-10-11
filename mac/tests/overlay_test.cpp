@@ -355,8 +355,8 @@ void overlayAnswersEveryCard() {
 
     // Tab types the proposal out; a second Tab sends it to the front agent.
     key(view, Qt::Key_Tab);
-    require(sender.sent.empty() &&
-                entry->property("text").toString() == QLatin1String("merge it and install the build"),
+    require(sender.sent.empty() && entry->property("text").toString() ==
+                                       QLatin1String("merge it and install the build"),
             "one Tab types the proposal and sends nothing");
     key(view, Qt::Key_Tab);
     require(sender.sent.size() == 1 && sender.sent[0].agent == id(0) &&

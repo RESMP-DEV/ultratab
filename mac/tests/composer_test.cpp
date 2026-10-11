@@ -384,8 +384,8 @@ void composesOnlyWhileOpen() {
     settings.debounce_ms = 0;
     settings.max_running = 1;
     Composer composer(runner, paths(directory), settings);
-    composer.setPublished(published(directory.path(), {{'a', 100, {}, {}, {}},
-                                                       {'b', 200, {}, {}, {}}}));
+    composer.setPublished(
+        published(directory.path(), {{'a', 100, {}, {}, {}}, {'b', 200, {}, {}, {}}}));
     QCoreApplication::processEvents();
     require(runner.jobs.empty(), "nothing is composed while the overlay is hidden");
     composer.setHeld(id('b'));
