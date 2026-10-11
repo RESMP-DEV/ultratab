@@ -27,6 +27,10 @@ struct ComposerSettings {
     int debounce_ms{2000};
     int timeout_ms{120000};
     int max_running{2};
+    // Compose only while the overlay shows (front card first), not for every
+    // waiting agent all day: composing costs a model call, and most cards
+    // were never opened.
+    bool only_while_open{true};
     QJsonObject helper; // passed to the helper: model, effort, endpoint
 };
 [[nodiscard]] ComposerSettings parse_composer(const QJsonValue& value);
@@ -94,6 +98,9 @@ class Composer final : public QObject {
     // it is hidden. Its card's content never changes under the person unless
     // its key does.
     void setHeld(const QString& agent_id);
+    // Whether the overlay shows; with only_while_open, nothing new starts
+    // while it is hidden (what is running finishes).
+    void setOpen(bool open);
 
     [[nodiscard]] QJsonObject cards() const;
     [[nodiscard]] qsizetype running() const { return running_.size(); }
@@ -142,6 +149,7 @@ class Composer final : public QObject {
     QHash<QString, Running> running_;
     QStringList order_; // waiting agents in deck order: the front card composes first
     QString held_;
+    bool open_{};
     QTimer timer_;
     QElapsedTimer clock_;
     QByteArray written_;

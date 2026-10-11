@@ -393,6 +393,8 @@ int main(int argc, char** argv) {
         };
         QObject::connect(&deck, &Deck::changed, &*composer, hold);
         QObject::connect(&view, &QWindow::visibleChanged, &*composer, hold);
+        QObject::connect(&view, &QWindow::visibleChanged, &*composer,
+                         [&composer](bool shown) { composer->setOpen(shown); });
     }
     if (!platform::register_hotkey(*hotkey, [&overlay] { overlay.toggle(); }))
         qWarning().noquote() << "Ultra Tab: could not take" << describe(*hotkey)

@@ -45,6 +45,8 @@ ComposerSettings parse_composer(const QJsonValue& value) {
     const auto object = value.toObject();
     if (object.value(QStringLiteral("enabled")).isBool())
         settings.enabled = object.value(QStringLiteral("enabled")).toBool();
+    if (object.value(QStringLiteral("onlyWhileOpen")).isBool())
+        settings.only_while_open = object.value(QStringLiteral("onlyWhileOpen")).toBool();
     if (const auto seconds = object.value(QStringLiteral("timeoutSeconds")); seconds.isDouble())
         settings.timeout_ms = std::clamp(seconds.toInt(), 10, 600) * 1000;
     for (const auto* name : {"model", "effort", "endpoint"})
@@ -235,6 +237,14 @@ void Composer::setHeld(const QString& agent_id) {
     }
 }
 
+void Composer::setOpen(bool open) {
+    if (open == open_)
+        return;
+    open_ = open;
+    if (open_)
+        pump();
+}
+
 QJsonObject Composer::cards() const {
     QJsonObject cards;
     for (auto entry = cards_.cbegin(); entry != cards_.cend(); ++entry)
@@ -302,10 +312,15 @@ void Composer::reconcileCard(const QString& id, const AgentState& state, qint64 
 }
 
 void Composer::pump() {
+    if (settings_.only_while_open && !open_)
+        return; // wanted cards wait for the overlay; setOpen pumps again
     const auto now = clock_.elapsed();
     qint64 next = std::numeric_limits<qint64>::max();
-    // A runner may finish inside start(), which rebuilds order_: walk a copy.
-    const auto order = order_;
+    // A runner may finish inside start(), which rebuilds order_: walk a copy,
+    // the card in front first.
+    auto order = order_;
+    if (const auto front = order.indexOf(held_); front > 0)
+        order.move(front, 0);
     for (const auto& id : order) {
         const auto want = wanted_.constFind(id);
         if (want == wanted_.cend() || running_.contains(id))

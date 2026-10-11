@@ -142,6 +142,7 @@ Composer::Paths paths(const QTemporaryDir& directory) {
 ComposerSettings immediate() {
     ComposerSettings settings;
     settings.debounce_ms = 0;
+    settings.only_while_open = false;
     return settings;
 }
 
@@ -250,6 +251,7 @@ void debouncesAndHolds() {
     FakeRunner runner;
     ComposerSettings settings;
     settings.debounce_ms = 60;
+    settings.only_while_open = false;
     Composer composer(runner, paths(directory), settings);
     composer.setPublished(published(directory.path(), {{'a', 100, {}, {}, {}}}));
     require(runner.jobs.empty(), "a new turn waits out the debounce");
@@ -372,10 +374,37 @@ void runsTheHelperProcess() {
 }
 } // namespace
 
+// By default nothing is composed until the overlay opens; then the card in
+// front goes first.
+void composesOnlyWhileOpen() {
+    QTemporaryDir directory;
+    require(directory.isValid(), "fixture directory");
+    FakeRunner runner;
+    ComposerSettings settings;
+    settings.debounce_ms = 0;
+    settings.max_running = 1;
+    Composer composer(runner, paths(directory), settings);
+    composer.setPublished(published(directory.path(), {{'a', 100, {}, {}, {}},
+                                                       {'b', 200, {}, {}, {}}}));
+    QCoreApplication::processEvents();
+    require(runner.jobs.empty(), "nothing is composed while the overlay is hidden");
+    composer.setHeld(id('b'));
+    composer.setOpen(true);
+    require(runner.jobs.size() == 1 &&
+                runner.jobs[0].input.value(QStringLiteral("key")) == QLatin1String("turn:200"),
+            "opening composes the card in front first");
+    composer.setOpen(false);
+    runner.answer(0, "b's card");
+    require(runner.jobs.size() == 1, "closing starts nothing new");
+    composer.setOpen(true);
+    require(runner.jobs.size() == 2, "reopening carries on with the rest");
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     try {
         composesOnNewKeysOnly();
+        composesOnlyWhileOpen();
         failuresLeaveTheLastMessage();
         debouncesAndHolds();
         readsSettingsAndKeys();

@@ -89,8 +89,9 @@ agents whose state is unknown, are never cards; a pending request always is.
 
 ## Composed cards
 
-For each agent that waits on you, Ultra Tab also composes a card meant to put
-you back in that thread in seconds: a one-line summary and at most three blocks
+While the overlay is open, Ultra Tab composes a card for each agent that waits
+on you, the one in front first, meant to put you back in that thread in
+seconds: a one-line summary and at most three blocks
 the model
 chooses (a short paragraph, a list, a table when there are numbers to compare,
 a small diagram when structure is the point, or a link to a report the agent
@@ -132,6 +133,10 @@ Settings go in `~/.lapis/ultratab.json`:
 `"endpoint": "http://127.0.0.1:8000/v1"` with a `"model"` sends the request to
 a local OpenAI-compatible server (`/chat/completions`) instead, for example a
 local Qwen model. It is off unless set. `"enabled": false` stops composing.
+`"onlyWhileOpen": false` composes for every waiting agent in the background
+too, so cards are ready before you open the overlay; it is off because almost
+none of those cards were ever read (October 8 to 10: 497 compositions, two
+answers).
 
 Cards are written to `runtime/ultratab_cards.json` (owner-only, replaced
 atomically, only when a card changes, at most 512 KiB):
