@@ -53,6 +53,11 @@ std::optional<Card> card_for(const Agent& agent, const AgentState& state, int po
     const bool request = state.requests > 0;
     if (!request && !(waits_for_prompt(state.status) && (state.unseen || state.offer)))
         return std::nullopt;
+    // Parked in lapis: looked at and left without a prompt since it began to
+    // wait. It comes back with its next turn.
+    if (!request && state.parked_at_ms > 0 &&
+        state.parked_at_ms >= std::max(state.needed_at_ms, state.turn_at_ms))
+        return std::nullopt;
     const int tier = desktop::waiting_tier({.guessed = state.offer.has_value(),
                                             .guess_seen = state.offer && state.offer->seen,
                                             .status = state.status,

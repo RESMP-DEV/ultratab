@@ -84,8 +84,10 @@ accessibility settings, cards change without sliding and the dots do not pulse.
 
 Cards come in the order lapis's Tab visits waiting agents: a guess you have not
 seen yet, then turns that finished unseen and requests, then guesses you have
-seen; within each, the agent that has waited longest first. Agents at work, and
-agents whose state is unknown, are never cards; a pending request always is.
+seen; within each, the agent that has waited longest first. Agents at work,
+agents whose state is unknown, and agents parked in lapis (you looked at the
+finished turn and moved on; they return with their next turn) are never cards;
+a pending request always is.
 
 ## Composed cards
 

@@ -51,6 +51,7 @@ struct AgentState {
     qint64 needed_at_ms{};
     qint64 turn_at_ms{};
     std::optional<Offer> offer;
+    qint64 parked_at_ms{}; // the person looked and moved on (lapis's parkedAtMs)
 };
 struct Published {
     QList<Category> categories;

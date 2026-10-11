@@ -180,6 +180,19 @@ void cardsFollowLapisTabOrder() {
     require(ordered.at(1).name == QLatin1String("gameserver") &&
                 ordered.at(2).name == QLatin1String("cleanup"),
             "ties keep the registry order");
+
+    // Parked in lapis (looked at and left since it began to wait): no card
+    // until its next turn. A request is never parked.
+    auto parked = fixture();
+    parked.states[id('a')].parked_at_ms = 300;
+    parked.states[id('c')].parked_at_ms = 900;
+    require(names(waiting_cards(parked)) ==
+                QStringList({QStringLiteral("gameserver"), QStringLiteral("cleanup"),
+                             QStringLiteral("gemm-tune")}),
+            "a parked agent is not a card; a request still is");
+    parked.states[id('a')].needed_at_ms = parked.states[id('a')].turn_at_ms = 400;
+    require(waiting_cards(parked).front().name == QLatin1String("persist-gui"),
+            "its next turn brings it back");
 }
 
 void sentencesAreShort() {

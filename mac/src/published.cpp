@@ -84,6 +84,7 @@ AgentState parse_state(const QJsonObject& object) {
     state.requests = std::max(0, object.value(QStringLiteral("requests")).toInt());
     state.request = object.value(QStringLiteral("request")).toString();
     state.needed_at_ms = object.value(QStringLiteral("neededAtMs")).toInteger();
+    state.parked_at_ms = object.value(QStringLiteral("parkedAtMs")).toInteger();
     state.turn_at_ms = object.value(QStringLiteral("turnAtMs")).toInteger();
     const auto offer = object.value(QStringLiteral("offer")).toObject();
     if (const auto text = offer.value(QStringLiteral("text")).toString(); !text.isEmpty())
