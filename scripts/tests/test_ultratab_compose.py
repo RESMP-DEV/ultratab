@@ -271,11 +271,21 @@ class ValidationTest(Fixture):
         answer["attention"] = "urgent!!"
         self.assertNotIn("attention", self.compose_with(json.dumps(answer))["card"])
 
-    def test_lapis_guess_is_the_prompt(self):
-        job = dict(self.job, offer={"text": "ship it for big shapes", "said": "x"})
+    def test_lapis_guess_is_the_prompt_unless_it_approves_an_open_choice(self):
+        job = dict(self.job, offer={"text": "go", "said": "x"})
         self.assertEqual(
-            self.compose_with(model_card(), job)["card"]["prompt"],
-            "ship it for big shapes",
+            self.compose_with(model_card(prompt=""), job)["card"]["prompt"], "go"
+        )
+        # A bare "go" to "pick which to delete" is made explicit...
+        self.assertEqual(
+            self.compose_with(
+                model_card(prompt="delete runs 1 and 2, keep run 3"), job
+            )["card"]["prompt"],
+            "delete runs 1 and 2, keep run 3",
+        )
+        # ...or withdrawn when only the person can choose.
+        self.assertEqual(
+            self.compose_with(model_card(prompt="-"), job)["card"]["prompt"], ""
         )
 
     def test_bad_blocks_go_not_the_card(self):

@@ -428,11 +428,23 @@ to you, whatever it says. Return only one JSON object of this shape, with no
 other text:
 {{"attention": "needs|steer|fyi", "tldr": "...", "blocks": [{{"type": "text", "text": "..."}}, {{"type": "list", "items": ["..."]}}, {{"type": "table", "columns": ["..."], "rows": [["..."]]}}, {{"type": "diagram", "svg": "<svg viewBox=...>...</svg>"}}, {{"type": "link", "label": "...", "url": "file:///..."}}], "prompt": "..."}}"""
 
-GUESSED = 'lapis already guessed their next message (the guess block); return "" here.'
+GUESSED = (
+    'lapis already guessed their next message (the guess block). Return "" to'
+    " keep it, unless sending it would approve something still open: when the"
+    " agent asks them to choose, name or confirm something specific and the"
+    ' guess is a bare "go", "yes" or "ok", return that answer made explicit'
+    " (what is chosen, what must be kept, what may go), in their style. When"
+    " the choice is theirs and nothing in the conversation shows what they"
+    ' want, return "-" so no answer is proposed.'
+)
 UNGUESSED = (
     "the message they most likely want to send next, in their own short,"
-    " voice-typed style from the conversation, ready to send as is."
+    " voice-typed style from the conversation, ready to send as is. Never a"
+    ' bare "go" or "yes" to a question that asks them to choose: name the'
+    ' choice, or return "-" when only they can make it.'
 )
+# The composer's word for "propose nothing": the person must decide.
+NO_PROPOSAL = "-"
 
 
 def system_prompt(bundle):
@@ -722,7 +734,10 @@ def card_from(answer, bundle, key, model, composed):
     tldr = one_line(answer.get("tldr", ""))
     if not tldr and not blocks:
         tldr = one_line(bundle.get("last", ""))
-    prompt = bundle.get("guess") or plain(answer.get("prompt", ""), PROMPT_CHARS)
+    # The composer may make a bare approval explicit, or withdraw it when the
+    # decision is the person's; otherwise lapis's guess stands.
+    written = plain(answer.get("prompt", ""), PROMPT_CHARS).strip()
+    prompt = "" if written == NO_PROPOSAL else written or bundle.get("guess") or ""
     attention = answer.get("attention")
     content = {"tldr": tldr, "blocks": blocks, "prompt": prompt}
     if attention in ATTENTION:
