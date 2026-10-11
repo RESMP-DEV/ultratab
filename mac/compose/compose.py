@@ -766,6 +766,8 @@ def reason_of(error):
         return "invalid model output"
     if isinstance(error, OSError):
         return "model unavailable"
+    if isinstance(error, RuntimeError):  # the CLI's own failure, classified
+        return "model " + next_prompt.failure(error)["kind"]
     return "model error"
 
 
