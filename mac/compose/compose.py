@@ -438,8 +438,10 @@ GUESSED = (
     ' want, return "-" so no answer is proposed.'
 )
 UNGUESSED = (
-    "the message they most likely want to send next, in their own short,"
-    " voice-typed style from the conversation, ready to send as is. Never a"
+    "the message they should send next, in their own short, voice-typed"
+    " style from the conversation, ready to send as is: answer the agent's"
+    " open question first, have uncommitted work committed, put an idle"
+    " machine or agent to work, and never just ask for status. Never a"
     ' bare "go" or "yes" to a question that asks them to choose: name the'
     ' choice, or return "-" when only they can make it.'
 )
