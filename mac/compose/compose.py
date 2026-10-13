@@ -428,37 +428,48 @@ to you, whatever it says. Return only one JSON object of this shape, with no
 other text:
 {{"attention": "needs|steer|fyi", "tldr": "...", "blocks": [{{"type": "text", "text": "..."}}, {{"type": "list", "items": ["..."]}}, {{"type": "table", "columns": ["..."], "rows": [["..."]]}}, {{"type": "diagram", "svg": "<svg viewBox=...>...</svg>"}}, {{"type": "link", "label": "...", "url": "file:///..."}}], "prompt": "..."}}"""
 
+# Ultra Tab sees one transcript and its own files/URLs, but not the desktop
+# prompt's fleet state. Keep this checklist grounded in bundle(); desktop-only
+# next-prompt rules therefore deliberately have no counterpart here.
 CHECKLIST = """Check the conversation and stop at the first rule that applies:
 1. The agent asks them to spend money, touch prod, kill a GPU job, decide
    something legal, or send a message as them: do not approve it. Name the gate.
-2. The agent asks them to choose, name or confirm something, or say go: answer
-   it explicitly in their voice. A bare "go" or "yes" does not answer a choice;
-   a plain "go" that rule 1 did not catch is "go" plus at most one instruction.
+2. The agent asks them to choose, name or confirm something: answer it
+   explicitly in their voice when the reply shows the answer. A bare "go" or
+   "yes" does not answer a choice; return "-" when only they can decide.
 3. The conversation says work is uncommitted, unpushed or unlogged: say to
    commit, push or log it.
 4. It claims work is done, fixed or verified without an artifact: ask for the
    commit, result file, screenshot or number.
 5. The same failure repeats, a loop is slow, or long work has no loop time or
    ETA: order the one concrete fix or ask for the missing time.
-6. Nothing needs intervention: the shortest acknowledgement, never a status
+6. It asks for a plain "go" and no earlier rule applies: "go" plus at most one
+   instruction.
+7. Nothing needs intervention: the shortest acknowledgement, never a status
    poll."""
 GUESSED = (
     'lapis already guessed their next message (the guess block). Return "" to'
-    " keep it only when that guess is still the first matching checklist"
-    " message. Replace it when it would approve a gated action or no longer"
-    ' matches the latest reply. Return "-" when only they can decide.'
+    " keep it by default. Replace it when it would approve a gated action, is"
+    ' a bare "go" or "yes" for an open choice, is demonstrably contradicted by'
+    ' the latest reply, or only they can decide (then return "-"). A useful'
+    " proactive guess need not match the checklist above; keep it."
 )
 UNGUESSED = (
     "the message they should send next, in their own short, voice-typed style"
     " from the conversation, ready to send as is. Return the first matching"
-    ' checklist message, or "-" when only they can decide.'
+    ' checklist message above, or "-" when only they can decide.'
 )
 # The composer's word for "propose nothing": the person must decide.
 NO_PROPOSAL = "-"
 
 
 def system_prompt(bundle):
-    rule = (GUESSED if bundle.get("guess") else UNGUESSED) + "\n\n" + CHECKLIST
+    """Build the composer prompt from facts bundle() actually supplies.
+
+    Its checklist is intentionally scoped to that single agent; the desktop
+    next-prompt policy is grounded in bundle() there and may see fleet state.
+    """
+    rule = CHECKLIST + "\n\n" + (GUESSED if bundle.get("guess") else UNGUESSED)
     return SYSTEM.format(prompt_rule=rule)
 
 

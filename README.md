@@ -98,10 +98,11 @@ the model
 chooses (a short paragraph, a list, a table when there are numbers to compare,
 a small diagram when structure is the point, or a link to a report the agent
 wrote that you have not opened). Its proposed next message is lapis's guess
-when there is one, except that a bare "go" or "yes" to a question asking you
-to choose is replaced by the answer made explicit (what is chosen, what is
-kept), or by no proposal at all when only you can make the choice: a key press
-should approve something definite. When you last looked and how long the agent has waited
+when there is one, unless it would approve a gated action, is a bare "go" or
+"yes" to an open choice, or is contradicted by the latest reply. A useful
+proactive guess is kept even when it is not itself a checklist action; a
+choice only you can make becomes no proposal, because a key press should
+approve something definite. When you last looked and how long the agent has waited
 frame the card but are not shown: a thread you looked at minutes ago gets only
 what changed, and one you have likely forgotten opens with what it is about.
 
