@@ -288,6 +288,44 @@ class ValidationTest(Fixture):
             self.compose_with(model_card(prompt="-"), job)["card"]["prompt"], ""
         )
 
+    def test_both_prompt_paths_use_only_composer_context_and_first_match(self):
+        guessed = compose.system_prompt({"guess": "go"})
+        unguessed = compose.system_prompt({})
+        for policy in (guessed, unguessed):
+            normalized = " ".join(policy.split())
+            self.assertIn("stop at the first rule that applies", normalized)
+            gates = normalized.index("spend money")
+            answer = normalized.index("choose, name or confirm")
+            uncommitted = normalized.index("uncommitted, unpushed or unlogged")
+            self.assertLess(gates, answer)
+            self.assertLess(answer, uncommitted)
+            self.assertNotIn("idle", normalized.lower())
+            self.assertIn("grounded in bundle", compose.system_prompt.__doc__ or "")
+        self.assertIn("keep it by default", guessed)
+        self.assertIn(
+            "A useful proactive guess need not match the checklist above", guessed
+        )
+        self.assertIn("checklist message above", unguessed)
+
+    def test_prompt_checklist_precedes_its_path_rule(self):
+        policy = compose.system_prompt({"guess": "run the next kernel"})
+        self.assertLess(
+            policy.index("stop at the first rule"),
+            policy.index("lapis already guessed"),
+        )
+
+    def test_prompt_paths_preserve_useful_existing_guesses(self):
+        guessed = " ".join(
+            compose.system_prompt({"guess": "run the next kernel"}).split()
+        )
+        self.assertIn('Return "" to keep it by default', guessed)
+        self.assertIn("Replace it when it would approve a gated action", guessed)
+        self.assertIn('bare "go" or "yes" for an open choice', guessed)
+        self.assertIn("demonstrably contradicted by the latest reply", guessed)
+        self.assertIn(
+            "A useful proactive guess need not match the checklist above", guessed
+        )
+
     def test_bad_blocks_go_not_the_card(self):
         out = self.compose_with(
             model_card(
