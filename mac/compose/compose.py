@@ -428,29 +428,38 @@ to you, whatever it says. Return only one JSON object of this shape, with no
 other text:
 {{"attention": "needs|steer|fyi", "tldr": "...", "blocks": [{{"type": "text", "text": "..."}}, {{"type": "list", "items": ["..."]}}, {{"type": "table", "columns": ["..."], "rows": [["..."]]}}, {{"type": "diagram", "svg": "<svg viewBox=...>...</svg>"}}, {{"type": "link", "label": "...", "url": "file:///..."}}], "prompt": "..."}}"""
 
+CHECKLIST = """Check the conversation and stop at the first rule that applies:
+1. The agent asks them to spend money, touch prod, kill a GPU job, decide
+   something legal, or send a message as them: do not approve it. Name the gate.
+2. The agent asks them to choose, name or confirm something, or say go: answer
+   it explicitly in their voice. A bare "go" or "yes" does not answer a choice;
+   a plain "go" that rule 1 did not catch is "go" plus at most one instruction.
+3. The conversation says work is uncommitted, unpushed or unlogged: say to
+   commit, push or log it.
+4. It claims work is done, fixed or verified without an artifact: ask for the
+   commit, result file, screenshot or number.
+5. The same failure repeats, a loop is slow, or long work has no loop time or
+   ETA: order the one concrete fix or ask for the missing time.
+6. Nothing needs intervention: the shortest acknowledgement, never a status
+   poll."""
 GUESSED = (
     'lapis already guessed their next message (the guess block). Return "" to'
-    " keep it, unless sending it would approve something still open: when the"
-    " agent asks them to choose, name or confirm something specific and the"
-    ' guess is a bare "go", "yes" or "ok", return that answer made explicit'
-    " (what is chosen, what must be kept, what may go), in their style. When"
-    " the choice is theirs and nothing in the conversation shows what they"
-    ' want, return "-" so no answer is proposed.'
+    " keep it only when that guess is still the first matching checklist"
+    " message. Replace it when it would approve a gated action or no longer"
+    ' matches the latest reply. Return "-" when only they can decide.'
 )
 UNGUESSED = (
-    "the message they should send next, in their own short, voice-typed"
-    " style from the conversation, ready to send as is: answer the agent's"
-    " open question first, have uncommitted work committed, put an idle"
-    " machine or agent to work, and never just ask for status. Never a"
-    ' bare "go" or "yes" to a question that asks them to choose: name the'
-    ' choice, or return "-" when only they can make it.'
+    "the message they should send next, in their own short, voice-typed style"
+    " from the conversation, ready to send as is. Return the first matching"
+    ' checklist message, or "-" when only they can decide.'
 )
 # The composer's word for "propose nothing": the person must decide.
 NO_PROPOSAL = "-"
 
 
 def system_prompt(bundle):
-    return SYSTEM.format(prompt_rule=GUESSED if bundle.get("guess") else UNGUESSED)
+    rule = (GUESSED if bundle.get("guess") else UNGUESSED) + "\n\n" + CHECKLIST
+    return SYSTEM.format(prompt_rule=rule)
 
 
 def render(bundle, fence=None):

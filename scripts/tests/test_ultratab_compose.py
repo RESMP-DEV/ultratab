@@ -288,6 +288,23 @@ class ValidationTest(Fixture):
             self.compose_with(model_card(prompt="-"), job)["card"]["prompt"], ""
         )
 
+    def test_both_prompt_paths_use_only_composer_context_and_first_match(self):
+        guessed = compose.system_prompt({"guess": "go"})
+        unguessed = compose.system_prompt({})
+        for policy in (guessed, unguessed):
+            normalized = " ".join(policy.split())
+            self.assertIn("stop at the first rule that applies", normalized)
+            gates = normalized.index("spend money")
+            answer = normalized.index("choose, name or confirm")
+            uncommitted = normalized.index("uncommitted, unpushed or unlogged")
+            self.assertLess(gates, answer)
+            self.assertLess(answer, uncommitted)
+            self.assertNotIn("idle", normalized.lower())
+        self.assertIn(
+            "keep it only when that guess is still the first matching", guessed
+        )
+        self.assertIn("Return the first matching checklist message", unguessed)
+
     def test_bad_blocks_go_not_the_card(self):
         out = self.compose_with(
             model_card(
