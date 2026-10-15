@@ -346,8 +346,28 @@ class ValidationTest(Fixture):
         self.assertEqual(card["ends"], "Ends when the PR merges.")
         self.assertNotIn("ends", self.compose_with(model_card())["card"])
 
+    def test_an_acknowledgement_is_no_card(self):
+        for said in ("ok thanks", "OK, good.", "looks good!", "got it"):
+            card = self.compose_with(model_card(attention="steer", prompt=said))["card"]
+            self.assertEqual((card["attention"], card["prompt"]), ("fyi", ""), said)
+        # lapis's own guess is held to the same rule.
+        job = dict(self.job, offer={"text": "ok thanks", "said": "x"})
+        card = self.compose_with(model_card(attention="steer", prompt=""), job)["card"]
+        self.assertEqual(card["attention"], "fyi")
+        for kept in ("go", "yes", "are we all wrapped up?", "ok thanks, now push it"):
+            card = self.compose_with(model_card(attention="steer", prompt=kept))["card"]
+            self.assertEqual((card["attention"], card["prompt"]), ("steer", kept), kept)
+        job = dict(self.job, request="Allow Bash?")
+        card = self.compose_with(model_card(attention="needs", prompt="ok"), job)[
+            "card"
+        ]
+        self.assertEqual(card["attention"], "needs")
+
     def test_later_parks_the_card_with_its_check(self):
-        later = {"at": "2026-10-07T09:00:00-06:00", "prompt": "what did the review say?"}
+        later = {
+            "at": "2026-10-07T09:00:00-06:00",
+            "prompt": "what did the review say?",
+        }
         job = dict(self.job, offer={"text": "go", "said": "x"})
         card = self.compose_with(model_card(attention="fyi", later=later), job)["card"]
         self.assertEqual(card["due"], "2026-10-07T15:00:00Z")

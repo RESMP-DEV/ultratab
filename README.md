@@ -133,7 +133,9 @@ the card instead: `due` is when to check (within a week, 9 am your time on the
 next working day for an overnight reply) and the proposed reply is that check.
 The card stays out of the deck until then and comes back as a yellow nudge, on
 time even when nothing else changes. A thread that looks finished can still
-propose a short wrap-up question, so you can clear it. It asks the model lapis's suggestions
+propose a short wrap-up question, so you can clear it. A card whose only
+proposal would acknowledge ("ok thanks", "looks good"), whether written by the
+composer or kept from lapis's guess, is `fyi` and leaves the deck. It asks the model lapis's suggestions
 use, through the Claude Code CLI on the plan it is signed in to; no API key is
 read. A link is kept only when it names one of those files or a URL the agent
 wrote; a diagram is kept only after scripts, external references and event

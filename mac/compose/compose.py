@@ -566,8 +566,9 @@ CHECKLIST = """Check the conversation and stop at the first rule that applies:
    ETA: order the one concrete fix or ask for the missing time.
 6. It asks for a plain "go" and no earlier rule applies: "go" plus at most one
    instruction.
-7. Nothing needs intervention: the shortest acknowledgement, never a status
-   poll."""
+7. Nothing needs intervention: a short wrap-up question when the thread
+   looks finished; otherwise no card (attention "fyi", prompt "-"). Never a
+   bare acknowledgement such as "ok thanks", and never a status poll."""
 GUESSED = (
     'lapis already guessed their next message (the guess block). Return "" to'
     " keep it by default. Replace it when it would approve a gated action, is"
@@ -582,6 +583,37 @@ UNGUESSED = (
 )
 # The composer's word for "propose nothing": the person must decide.
 NO_PROPOSAL = "-"
+# Words that only acknowledge ("ok thanks", "looks good"): such a reply moves
+# nothing, so its card is skipped.
+ACKNOWLEDGING = {
+    "ok",
+    "okay",
+    "k",
+    "kk",
+    "thanks",
+    "thank",
+    "you",
+    "thx",
+    "ty",
+    "cool",
+    "nice",
+    "great",
+    "good",
+    "perfect",
+    "sounds",
+    "looks",
+    "got",
+    "it",
+    "awesome",
+    "sweet",
+    "noted",
+}
+
+
+def acknowledgement(text):
+    """Whether `text` only acknowledges: one to four such words."""
+    words = re.findall(r"[a-z']+", str(text).lower())
+    return 0 < len(words) <= 4 and all(w in ACKNOWLEDGING for w in words)
 
 
 def system_prompt(bundle):
@@ -916,6 +948,9 @@ def card_from(answer, bundle, key, model, composed):
     content = {"tldr": tldr, "blocks": blocks, "prompt": prompt}
     if attention in ATTENTION:
         content["attention"] = attention
+    if prompt and acknowledgement(prompt) and not bundle.get("request"):
+        # A reply that only acknowledges needs no card.
+        content["attention"], content["prompt"] = "fyi", ""
     ends = one_line(answer.get("ends", ""), ENDS_CHARS)
     if ends:
         content["ends"] = ends
