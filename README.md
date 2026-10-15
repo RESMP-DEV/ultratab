@@ -117,7 +117,23 @@ or Codex keeps (as [suggestions](suggestions.md) do, with the same clipping),
 when you last focused, typed or pasted into that agent in lapis (from
 `runtime/interaction.jsonl`, when the interaction log is on), how long the
 agent has waited, its title and category, and the HTML and Markdown files it
-wrote or mentioned since you last looked. It asks the model lapis's suggestions
+wrote or mentioned since you last looked. It also sees your local clock, when
+you last wrote in that thread, how many conversations its folder had in the
+past week, and the rest of the project: up to 12 other agents in the same
+category or folder, with what each is doing, how long ago its last turn ended
+and the start of its last reply (from `runtime/agent_state.json`).
+
+Before writing the card the composer judges the thread. It predicts how the
+thread ends (`ends`: what it still waits on and the event that closes it). A
+thread where nothing you send now would change anything, because it waits on a
+job, a subagent or someone else's reply, is `fyi` and leaves the deck. When the
+useful message is a check that only makes sense after time passes (a job with
+an ETA, or a reply that comes in someone's working hours), the composer parks
+the card instead: `due` is when to check (within a week, 9 am your time on the
+next working day for an overnight reply) and the proposed reply is that check.
+The card stays out of the deck until then and comes back as a yellow nudge, on
+time even when nothing else changes. A thread that looks finished can still
+propose a short wrap-up question, so you can clear it. It asks the model lapis's suggestions
 use, through the Claude Code CLI on the plan it is signed in to; no API key is
 read. A link is kept only when it names one of those files or a URL the agent
 wrote; a diagram is kept only after scripts, external references and event
@@ -153,7 +169,9 @@ atomically, only when a card changes, at most 512 KiB):
              {"type": "table", "columns": ["..."], "rows": [["..."]]},
              {"type": "diagram", "svg": "<svg viewBox=...>...</svg>"},
              {"type": "link", "label": "...", "url": "file:///..."}],
-  "prompt": "<the proposed next message>"}}}
+  "prompt": "<the proposed next message>",
+  "ends": "<how the thread likely ends>",
+  "due": "2026-10-16T15:00:00Z"}}}
 ```
 
 Limits: three blocks; text 300 characters; lists 6 items of 120; tables 5
@@ -257,7 +275,9 @@ typed, not as taken with Tab.
     {"type": "diagram", "svg": "<svg ...>"},
     {"type": "link", "label": "...", "url": "file:///... or https://..."}
   ],
-  "prompt": "the proposed reply"}}}
+  "prompt": "the proposed reply",
+  "ends": "how the thread likely ends",
+  "due": "2026-10-16T15:00:00Z"}}}
 ```
 
 The session id is the agent's registry id. A composed card is shown only while
@@ -269,7 +289,11 @@ joined by `|`, optionally prefixed with `<session id>|`. Any other key is stale
 and the plain card shows. A card without `tldr` keeps the plain
 headline; one without `prompt` keeps lapis's guess. A request card never takes a
 composed prompt. `since` is when the person last looked and how many turns
-passed since; it frames the card but neither renderer shows it.
+passed since; it frames the card but neither renderer shows it. `ends` is the
+composer's prediction of how the thread closes, logged for evaluation and not
+shown. `due` (ISO 8601, UTC) parks the card: before it the agent is no card,
+after it the card is a nudge whose `prompt` is the check to send. A request
+card ignores `due`.
 
 What is shown, and the limits applied on reading:
 

@@ -61,7 +61,7 @@ class FakeRunner final : public ComposeRunner {
         jobs.push_back({job, std::move(done)});
     }
     // Answers job `index` as the helper would, with a card for its key.
-    void answer(std::size_t index, const QString& tldr) {
+    void answer(std::size_t index, const QString& tldr, const QJsonObject& extra = {}) {
         // A copy: answering can start another job, which grows `jobs`.
         const auto job = jobs.at(index);
         const QJsonObject card{{QStringLiteral("key"), job.input.value(QStringLiteral("key"))},
@@ -70,7 +70,10 @@ class FakeRunner final : public ComposeRunner {
                                {QStringLiteral("tldr"), tldr},
                                {QStringLiteral("blocks"), QJsonArray{}},
                                {QStringLiteral("prompt"), QStringLiteral("composed prompt")}};
-        job.done(QJsonObject{{QStringLiteral("card"), card},
+        auto merged = card;
+        for (auto field = extra.constBegin(); field != extra.constEnd(); ++field)
+            merged.insert(field.key(), field.value());
+        job.done(QJsonObject{{QStringLiteral("card"), merged},
                              {QStringLiteral("ok"), true},
                              {QStringLiteral("model"), QStringLiteral("fake")}},
                  {});
@@ -186,7 +189,9 @@ void composesOnNewKeysOnly() {
     require(runner.jobs.size() == 4 &&
                 runner.jobs[3].input.value(QStringLiteral("key")) == QLatin1String("turn:500"),
             "a newer finished turn composes that agent's card");
-    runner.answer(3, QStringLiteral("b again"));
+    runner.answer(3, QStringLiteral("b again"),
+                  {{QStringLiteral("due"), QStringLiteral("2026-10-07T15:00:00Z")},
+                   {QStringLiteral("prompt"), QStringLiteral("what came back?")}});
 
     // lapis's guess arrives for A's turn: the card takes it without a model call.
     composer.setPublished(
@@ -200,17 +205,31 @@ void composesOnNewKeysOnly() {
                 a.value(QStringLiteral("tldr")) == QLatin1String("a's card"),
             "a guess for a composed turn becomes the card's prompt and key");
 
+    // A guess for B's parked check takes the key but not the check's message.
+    composer.setPublished(
+        published(directory.path(), {{'a', 100, QStringLiteral("a:1"), QStringLiteral("ship it"),
+                                      QStringLiteral("Tests pass.")},
+                                     {'b', 500, QStringLiteral("b:1"), QStringLiteral("status?"),
+                                      QStringLiteral("Waiting on the run.")},
+                                     {'c', 300, {}, {}, {}}}));
+    const auto b = fileCards(cards).value(id('b')).toObject();
+    require(runner.jobs.size() == 4 && b.value(QStringLiteral("key")) == QLatin1String("b:1") &&
+                b.value(QStringLiteral("prompt")) == QLatin1String("what came back?"),
+            "a parked check keeps its message when a guess arrives");
+
     // C finishes a turn and its guess lands while the card composes.
     composer.setPublished(
         published(directory.path(), {{'a', 100, QStringLiteral("a:1"), QStringLiteral("ship it"),
                                       QStringLiteral("Tests pass.")},
-                                     {'b', 500, {}, {}, {}},
+                                     {'b', 500, QStringLiteral("b:1"), QStringLiteral("status?"),
+                                      QStringLiteral("Waiting on the run.")},
                                      {'c', 900, {}, {}, {}}}));
     require(runner.jobs.size() == 5, "C's new turn composes");
     composer.setPublished(
         published(directory.path(), {{'a', 100, QStringLiteral("a:1"), QStringLiteral("ship it"),
                                       QStringLiteral("Tests pass.")},
-                                     {'b', 500, {}, {}, {}},
+                                     {'b', 500, QStringLiteral("b:1"), QStringLiteral("status?"),
+                                      QStringLiteral("Waiting on the run.")},
                                      {'c', 900, QStringLiteral("c:1"), QStringLiteral("go"), {}}}));
     require(runner.jobs.size() == 5, "a guess for the turn being composed waits for it");
     runner.answer(4, QStringLiteral("c's new card"));

@@ -11,6 +11,7 @@
 #include <QPointer>
 #include <QRegularExpression>
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -49,7 +50,7 @@ QString what_happened(const AgentState& state) {
 }
 
 std::optional<Card> card_for(const Agent& agent, const AgentState& state, int position,
-                             const Published& published) {
+                             const Published& published, const QDateTime& now) {
     const bool request = state.requests > 0;
     if (!request && !(waits_for_prompt(state.status) && (state.unseen || state.offer)))
         return std::nullopt;
@@ -98,19 +99,22 @@ std::optional<Card> card_for(const Agent& agent, const AgentState& state, int po
             card.weight = 2;
         else if (!request && composed->attention == QLatin1String("fyi"))
             card.weight = 0;
+        // A check parked for later is no card until then.
+        if (!request && composed->due.isValid() && now < composed->due)
+            card.weight = 0;
     }
     return card;
 }
 } // namespace
 
-std::vector<Card> waiting_cards(const Published& published) {
+std::vector<Card> waiting_cards(const Published& published, const QDateTime& now) {
     std::vector<Card> cards;
     for (int position = 0; position < published.agents.size(); ++position) {
         const auto& agent = published.agents.at(position);
         const auto state = published.states.constFind(agent.id);
         if (state == published.states.cend())
             continue;
-        if (auto card = card_for(agent, *state, position, published))
+        if (auto card = card_for(agent, *state, position, published, now))
             cards.push_back(std::move(*card));
     }
     std::stable_sort(cards.begin(), cards.end(), [](const Card& left, const Card& right) {
@@ -163,11 +167,27 @@ QString DiagramStore::key_for(const QString& svg) {
 
 Deck::Deck(Sender& sender, QObject* parent)
     : QObject(parent), sender_(sender), running_(&writer_running),
-      opener_([](const QUrl& url) { QDesktopServices::openUrl(url); }) {}
+      opener_([](const QUrl& url) { QDesktopServices::openUrl(url); }) {
+    due_.setSingleShot(true);
+    connect(&due_, &QTimer::timeout, this, [this] { setPublished(Published(published_)); });
+}
 
 void Deck::setPublished(const Published& published) {
     published_ = published;
-    cards_ = waiting_cards(published_);
+    const auto now = QDateTime::currentDateTimeUtc();
+    cards_ = waiting_cards(published_, now);
+    // Bring a parked check back when it falls due, even if nothing else
+    // changes by then.
+    qint64 wake = -1;
+    for (const auto& card : cards_)
+        if (card.composed && card.composed->due.isValid() && now < card.composed->due) {
+            const auto ms = now.msecsTo(card.composed->due) + 1000;
+            wake = wake < 0 ? ms : std::min(wake, ms);
+        }
+    if (wake < 0)
+        due_.stop();
+    else
+        due_.start(static_cast<int>(std::min<qint64>(wake, std::numeric_limits<int>::max())));
     QHash<QString, QString> svgs;
     for (const auto& card : cards_)
         if (card.composed)

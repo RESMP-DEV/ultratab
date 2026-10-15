@@ -8,6 +8,7 @@
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
@@ -56,7 +57,10 @@ class DiagramStore {
 // Agents that need you, in the order lapis's Tab visits them: its tiers,
 // then the one waiting longest. An agent at work, or one whose state is
 // unknown, is never a card; one with a pending request always is.
-[[nodiscard]] std::vector<Card> waiting_cards(const Published& published);
+// A composed card parked until a later check is no card before `now` reaches
+// its due time.
+[[nodiscard]] std::vector<Card>
+waiting_cards(const Published& published, const QDateTime& now = QDateTime::currentDateTimeUtc());
 // The first sentence of `text` on one line, ending in an ellipsis past
 // `limit` characters.
 [[nodiscard]] QString one_sentence(const QString& text, qsizetype limit = 160);
@@ -193,6 +197,7 @@ class Deck final : public QObject {
     Sender& sender_;
     Published published_;
     std::vector<Card> cards_;
+    QTimer due_;             // the next parked check falling due
     QSet<QString> answered_; // card keys hidden by an answer
     std::deque<Answer> history_;
     quint64 answers_{};

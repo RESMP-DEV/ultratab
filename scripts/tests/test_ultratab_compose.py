@@ -211,6 +211,74 @@ class ContextTest(Fixture):
         self.assertIn(str(self.report.resolve()), text)
         self.assertIn("waited for them for 2 h", text)
 
+    def test_the_project_around_the_thread(self):
+        third = "00000000-0000-4000-8000-000000000003"
+        (self.runtime / "workspace.json").write_text(
+            json.dumps(
+                {
+                    "categories": [{"id": "k", "name": "kernels"}],
+                    "agents": [
+                        {
+                            "id": SESSION,
+                            "category": "k",
+                            "directory": str(self.work),
+                            "program": "/bin/claude",
+                        },
+                        {
+                            "id": OTHER,
+                            "category": "k",
+                            "title": "attn-tune",
+                            "directory": "/elsewhere",
+                        },
+                        {
+                            "id": third,
+                            "category": "z",
+                            "title": "mail",
+                            "directory": "/mail",
+                        },
+                    ],
+                }
+            )
+        )
+        (self.runtime / "agent_state.json").write_text(
+            json.dumps(
+                {
+                    "agents": [
+                        {
+                            "id": OTHER,
+                            "status": "working",
+                            "turnAtMs": int((NOW - 600) * 1000),
+                            "offer": {"said": "## Flash attention: **2.1x** done."},
+                        },
+                        {"id": third, "status": "finished"},
+                    ]
+                }
+            )
+        )
+        bundle = compose.context(self.job, NOW)
+        self.assertEqual(
+            bundle["project"],
+            [
+                {
+                    "title": "attn-tune",
+                    "category": "kernels",
+                    "same_folder": False,
+                    "status": "working",
+                    "turn_ago": "10 min",
+                    "waiting": "",
+                    "said": "Flash attention: 2.1x done.",
+                }
+            ],
+        )
+        self.assertEqual(bundle["wrote_ago"], "3 h")  # the 12:20 question
+        self.assertEqual(bundle["conversations"], 1)
+        self.assertTrue(bundle["clock"])
+        text = compose.render(bundle, fence="abc")
+        self.assertIn(
+            '<data-abc kind="project">\nattn-tune [working]: last turn 10 min ago', text
+        )
+        self.assertIn("They last wrote in this thread 3 h ago.", text)
+
     def test_codex_conversation_from_the_registry(self):
         record = {"id": SESSION, "managedResume": {"identity": "thread-9"}}
         job = dict(self.job, harness="codex", endpoint="")
@@ -270,6 +338,42 @@ class ValidationTest(Fixture):
         answer = json.loads(model_card())
         answer["attention"] = "urgent!!"
         self.assertNotIn("attention", self.compose_with(json.dumps(answer))["card"])
+
+    def test_ends_is_a_line_kept_on_the_card(self):
+        card = self.compose_with(model_card(ends="Ends when the **PR** merges."))[
+            "card"
+        ]
+        self.assertEqual(card["ends"], "Ends when the PR merges.")
+        self.assertNotIn("ends", self.compose_with(model_card())["card"])
+
+    def test_later_parks_the_card_with_its_check(self):
+        later = {"at": "2026-10-07T09:00:00-06:00", "prompt": "what did the review say?"}
+        job = dict(self.job, offer={"text": "go", "said": "x"})
+        card = self.compose_with(model_card(attention="fyi", later=later), job)["card"]
+        self.assertEqual(card["due"], "2026-10-07T15:00:00Z")
+        self.assertEqual(card["prompt"], "what did the review say?")
+        self.assertEqual(card["attention"], "steer")
+        # Past, beyond a week, without a zone, or with nothing to send: no park.
+        for bad in (
+            {"at": "2026-10-06T14:00:00Z", "prompt": "x"},
+            {"at": "2026-10-20T09:00:00Z", "prompt": "x"},
+            {"at": "2026-10-07T09:00:00", "prompt": "x"},
+            {"at": "2026-10-07T09:00:00Z", "prompt": "-"},
+            {"at": "tomorrow", "prompt": "x"},
+            "tomorrow",
+        ):
+            card = self.compose_with(model_card(attention="fyi", later=bad), job)[
+                "card"
+            ]
+            self.assertNotIn("due", card)
+            self.assertEqual(card["attention"], "fyi")
+
+    def test_the_prompt_judges_skip_later_and_wrap_up(self):
+        policy = " ".join(compose.system_prompt({}).split())
+        self.assertIn('Skip it (attention "fyi")', policy)
+        self.assertIn('"later" instead', policy)
+        self.assertIn("are we all wrapped up?", policy)
+        self.assertIn('"ends"', policy)
 
     def test_lapis_guess_is_the_prompt_unless_it_approves_an_open_choice(self):
         job = dict(self.job, offer={"text": "go", "said": "x"})

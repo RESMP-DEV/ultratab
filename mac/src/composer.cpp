@@ -293,7 +293,9 @@ void Composer::reconcileCard(const QString& id, const AgentState& state, qint64 
         if (have->turn == turn && state.offer) {
             auto patched = have->card;
             patched.insert(QStringLiteral("key"), key);
-            patched.insert(QStringLiteral("prompt"), state.offer->text);
+            // A parked check keeps its own message for when it falls due.
+            if (!patched.contains(QStringLiteral("due")))
+                patched.insert(QStringLiteral("prompt"), state.offer->text);
             wanted_.remove(id);
             store(id, patched, turn);
             log({{QStringLiteral("event"), QStringLiteral("guess")},

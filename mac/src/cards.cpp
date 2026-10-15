@@ -204,6 +204,7 @@ std::optional<ComposedCard> parse_card(const QJsonObject& object) {
         attention == QLatin1String("fyi"))
         card.attention = attention;
     card.prompt = bounded(object.value(QStringLiteral("prompt")), kLongText);
+    card.due = QDateTime::fromString(object.value(QStringLiteral("due")).toString(), Qt::ISODate);
     for (const auto& value : object.value(QStringLiteral("blocks")).toArray()) {
         if (card.blocks.size() == max_blocks)
             break;

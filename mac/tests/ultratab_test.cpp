@@ -20,9 +20,11 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QTemporaryDir>
+#include <QTimeZone>
 #include <QUrl>
 #include <lapis/session/terminal.hpp>
 
+#include <algorithm>
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -781,6 +783,35 @@ void composedCardsFollowTheTurn() {
             "Tab sends the composed prompt");
 }
 
+void aParkedCheckWaitsUntilDue() {
+    auto published = fixture();
+    const auto due = QDateTime(QDate(2026, 10, 7), QTime(15, 0), QTimeZone::UTC);
+    published.composed = parse_cards(cardsFile(
+        {{id('a'), QJsonObject{{QStringLiteral("key"), QStringLiteral("300|300|a:1|0")},
+                               {QStringLiteral("attention"), QStringLiteral("steer")},
+                               {QStringLiteral("due"), QStringLiteral("2026-10-07T15:00:00Z")},
+                               {QStringLiteral("prompt"), QStringLiteral("what came back?")}}},
+         {id('c'), QJsonObject{{QStringLiteral("key"), id('c') + QStringLiteral("|200|200||1")},
+                               {QStringLiteral("due"), QStringLiteral("2026-10-07T15:00:00Z")}}}}));
+    const auto weight_of = [](const std::vector<Card>& cards, const QString& agent) {
+        for (const auto& card : cards)
+            if (card.agent_id == agent)
+                return card.weight;
+        return -1;
+    };
+    require(published.composed.cards.value(id('a')).due == due, "due is read as UTC");
+    const auto before = waiting_cards(published, due.addSecs(-60));
+    require(weight_of(before, id('a')) == 0, "a parked check is no card before it falls due");
+    require(weight_of(before, id('c')) == 2, "a request is a card whatever its due time");
+    const auto after = waiting_cards(published, due.addSecs(60));
+    require(weight_of(after, id('a')) == 1, "after it, the check is a nudge");
+    require(std::find_if(after.cbegin(), after.cend(),
+                         [](const Card& card) {
+                             return card.proposal == QLatin1String("what came back?");
+                         }) != after.cend(),
+            "with the check as its reply");
+}
+
 void svgIsSanitized() {
     const auto ok = sanitize_svg(QStringLiteral(
         "<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' "
@@ -927,6 +958,7 @@ int main(int argc, char** argv) {
         joinsBesideTheWindow();
         composedCardsParse();
         composedCardsFollowTheTurn();
+        aParkedCheckWaitsUntilDue();
         svgIsSanitized();
         snapping();
         settingsAndPlacement();
