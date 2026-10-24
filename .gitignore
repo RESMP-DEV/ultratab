@@ -1,0 +1,76 @@
+# Local semantic indexes and agent state (shared instructions stay tracked).
+.sindexer/
+/.codex/
+/.claude/
+/.worktrees/
+
+# Build trees, generated CMake state, and compiler artifacts.
+/build/
+/build-*/
+/cmake-build-*/
+/out/
+/target/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+CMakeUserPresets.json
+compile_commands.json
+Testing/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.dSYM/
+*.app/
+
+# The iPhone app's generated Xcode project and per-Mac settings.
+/apps/ios/Lapis.xcodeproj/
+/apps/ios/Config/Local.xcconfig
+xcuserdata/
+
+# Runtime/session data and profiling output. Sanitized evidence/ is tracked.
+/runtime/
+/.cache/
+*.trace/
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+
+# Python environments and caches.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ty_cache/
+
+# Local credentials and environment values; safe example files may be shared.
+.env
+.env.*
+!.env.example
+/.secrets/
+
+# Operating-system and editor-local files.
+.DS_Store
+._*
+Thumbs.db
+.idea/
+*.swp
+*.swo
+*~
+*.pro.user*
+CMakeLists.txt.user*
+
+# Canonical project instructions and their relative symlink are source files.
+!/AGENTS.md
+!/CLAUDE.md

@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "apps" / "ultratab" / "compose"))
+sys.path.insert(0, str(ROOT / "mac" / "compose"))
 import compose  # noqa: E402
 
 SESSION = "00000000-0000-4000-8000-000000000001"

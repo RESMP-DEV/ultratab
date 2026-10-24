@@ -294,6 +294,7 @@ final class SendPathTests: XCTestCase {
         XCTAssertEqual(deck.message, "Sent to kernels")
         XCTAssertEqual(deck.history.first?.outcome, "sent")
 
+        let skippedKey = deck.front?.key ?? ""
         XCTAssertEqual(deck.apply(.skip), .skipped)
         XCTAssertEqual(deck.front?.agentID, agentC)
         await deck.waitForSends()
@@ -304,7 +305,7 @@ final class SendPathTests: XCTestCase {
         XCTAssertEqual(skips.first?.agent, agentB)
         XCTAssertEqual(
             skips.first?.label,
-            AnswerLabel(key: "g", how: "skipped", proposal: "run the sweep")
+            AnswerLabel(key: skippedKey, how: "skipped", proposal: "")
         )
         XCTAssertNil(deck.apply(.none))
     }
@@ -377,13 +378,16 @@ final class SendPathTests: XCTestCase {
     func testEachAnswerAndSkipCarriesItsCardLabel() async {
         let service = FakeService()
         let deck = makeDeck(service)
+        // The card's whole key, as the Mac overlay logs it; "g" is its composed key.
+        let key = deck.front?.key
+        XCTAssertEqual(key?.split(separator: "|", omittingEmptySubsequences: false)[3], "g")
         deck.accept()
         await deck.waitForSends()
         deck.skip()
         await deck.waitForSends()
         let sent = await service.sent
         XCTAssertEqual(sent.count, 1)
-        XCTAssertEqual(sent[0].label?.key, "g")
+        XCTAssertEqual(sent[0].label?.key, key)
         XCTAssertEqual(sent[0].label?.how, "accepted")
         XCTAssertEqual(sent[0].label?.proposal, "run the sweep")
     }

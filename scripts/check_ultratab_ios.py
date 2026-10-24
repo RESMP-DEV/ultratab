@@ -8,7 +8,7 @@ Starts, all disposable and on this Mac:
   service is not running ("parked") and one at work ("trainer"),
 - the published deck beside them: agent_state.json and ultratab_cards.json
   with every block type (text, list, table, diagram, link),
-- the gateway (apps/remote/lapis_remote.py) on 127.0.0.1 with --allow-local.
+- lapis's gateway (lapis/apps/remote/lapis_remote.py) on 127.0.0.1 with --allow-local.
 
 Then it runs the UltraTabUITests (deal the deck, swipe, a
 typed note, a refused send, the first-run tutorial, swipe poses) and the UltraTabTests
@@ -39,13 +39,13 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-sys.path.insert(0, str(ROOT / "apps" / "remote"))
+LAPIS = ROOT / "lapis"
+sys.path.insert(0, str(LAPIS / "scripts"))
+sys.path.insert(0, str(LAPIS / "apps" / "remote"))
 import check_ios_remote as lapis_ios  # noqa: E402
 import lapis_remote  # noqa: E402
 from check_ios_remote import (  # noqa: E402
     DEVICE,
-    SERVICE,
     TARGET,
     bundle_xctest_frameworks,
     sign,
@@ -53,7 +53,12 @@ from check_ios_remote import (  # noqa: E402
     tool,
 )
 
-IOS = ROOT / "apps" / "ios"
+IOS = ROOT / "ios"
+# The session service from this repository's build of the pinned lapis.
+SERVICE = (
+    ROOT / "build" / "dev" / "lapis" / "services" / "session" / "lapis_session_service"
+)
+lapis_ios.SERVICE = SERVICE
 APP_SOURCES = IOS / "UltraTab"
 UI_SOURCES = IOS / "UltraTabUITests"
 UNIT_SOURCES = IOS / "UltraTabTests"
@@ -551,7 +556,7 @@ def start_gateway(run, runtime):
         "gateway",
         [
             python,
-            str(ROOT / "apps" / "remote" / "lapis_remote.py"),
+            str(LAPIS / "apps" / "remote" / "lapis_remote.py"),
             "--registry",
             str(runtime / "workspace.json"),
             "--config",
@@ -638,7 +643,7 @@ def main():
     if not args.unit and not SERVICE.exists():
         raise SystemExit(
             "missing the session service; build it first: "
-            "cmake --build build/desktop --target lapis_session_service"
+            "cmake --build build/dev --target lapis_session_service"
         )
     sdk = tool("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path")
     platform = tool("xcrun", "--sdk", "iphonesimulator", "--show-sdk-platform-path")

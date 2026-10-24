@@ -1,6 +1,6 @@
 # Ultra Tab: a second app beside the lapis window that deals the agents that
 # need you as a deck of cards. It reuses the session transport and launch
-# identity and reads only what lapis publishes (docs/ultratab.md).
+# identity and reads only what lapis publishes (README.md).
 find_package(Qt6 6.11.2 EXACT REQUIRED COMPONENTS Core Gui Qml Quick Network Svg)
 set(CMAKE_AUTOMOC ON)
 if(APPLE)
@@ -19,7 +19,7 @@ add_library(lapis_ultratab_core STATIC
     src/platform_overlay.hpp)
 target_include_directories(lapis_ultratab_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 # The Tab order is shared with the desktop through one header-only file.
-target_include_directories(lapis_ultratab_core PRIVATE "${PROJECT_SOURCE_DIR}/apps/desktop/src")
+target_include_directories(lapis_ultratab_core PRIVATE "${LAPIS_SOURCE_DIR}/apps/desktop/src")
 target_link_libraries(lapis_ultratab_core PRIVATE lapis_project_options
     PUBLIC lapis_local_protocol lapis_session_launch Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick
         Qt6::Network Qt6::Svg)
@@ -27,7 +27,7 @@ qt_add_resources(lapis_ultratab_core ultratab_qml PREFIX "/ultratab"
                  FILES qml/Overlay.qml qml/HarnessTile.qml)
 # The card composer and the next-prompt helper it imports, written beside
 # each other into runtime/ultratab_compose/ at launch (src/composer.hpp).
-set(ULTRATAB_NEXT_PROMPT "${PROJECT_SOURCE_DIR}/apps/desktop/src/next_prompt.py")
+set(ULTRATAB_NEXT_PROMPT "${LAPIS_SOURCE_DIR}/apps/desktop/src/next_prompt.py")
 set_source_files_properties(compose/compose.py PROPERTIES QT_RESOURCE_ALIAS compose.py)
 set_source_files_properties("${ULTRATAB_NEXT_PROMPT}" PROPERTIES QT_RESOURCE_ALIAS next_prompt.py)
 qt_add_resources(lapis_ultratab_core ultratab_compose PREFIX "/ultratab/compose"

@@ -28,8 +28,8 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # Beside a copy of next_prompt.py when Ultra Tab runs it; in the repository,
-# the desktop's own file.
-for _folder in (HERE, os.path.join(HERE, os.pardir, os.pardir, "desktop", "src")):
+# the pinned lapis desktop's own file.
+for _folder in (HERE, os.path.join(HERE, os.pardir, os.pardir, "lapis", "apps", "desktop", "src")):
     if os.path.isfile(os.path.join(_folder, "next_prompt.py")):
         sys.path.insert(0, os.path.abspath(_folder))
         break

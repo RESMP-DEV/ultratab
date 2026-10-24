@@ -1,0 +1,4 @@
+// Shared settings. Local.xcconfig (not committed) sets the signing team and
+// the default gateway host for this Mac.
+LAPIS_DEFAULT_HOST =
+#include? "Local.xcconfig"

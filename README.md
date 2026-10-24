@@ -7,7 +7,10 @@ agents that need you as a deck of cards: one at a time in the panel. Answer the 
 keeps running as it is; Ultra Tab only reads what lapis publishes and types to
 an agent the way the phone does.
 
-It works from a build of this repository; it is not part of the downloaded app.
+It lived in the [lapis](https://github.com/RESMP-DEV/lapis) repository until
+October 2026 and now has its own. lapis is a pinned submodule here: Ultra Tab
+builds against its session transport, launch identity, Tab order and
+next-prompt helper, and reads only what the lapis window publishes.
 
 ## A card
 
@@ -40,7 +43,7 @@ is blurred; the window is as tall as the card.
 
 A plain card's headline is one sentence of what happened (the start of the
 agent's last reply) and its proposed reply is lapis's guess at your next prompt
-([suggestions](suggestions.md); with suggestions off, plain cards have no
+([suggestions](https://github.com/RESMP-DEV/lapis/blob/main/docs/suggestions.md); with suggestions off, plain cards have no
 guess). A composed card (below) has its own headline and up to three blocks: a paragraph, a short list, a table, a
 diagram or a link, and its own proposed reply.
 
@@ -113,7 +116,7 @@ replaces the proposed message, with no second model call. While the overlay
 shows, the card in front changes only when what it was composed for changes.
 
 The composer reads the end of the conversation from the transcript Claude Code
-or Codex keeps (as [suggestions](suggestions.md) do, with the same clipping),
+or Codex keeps (as [suggestions](https://github.com/RESMP-DEV/lapis/blob/main/docs/suggestions.md) do, with the same clipping),
 when you last focused, typed or pasted into that agent in lapis (from
 `runtime/interaction.jsonl`, when the interaction log is on), how long the
 agent has waited, its title and category, and the HTML and Markdown files it
@@ -183,23 +186,32 @@ duration, model and outcome, never conversation text.
 
 ## Running it
 
-With the desktop build configured ([build](build.md)):
+Clone with the lapis submodule and build. It needs what lapis's own build
+needs ([build](https://github.com/RESMP-DEV/lapis/blob/main/docs/build.md)): Qt 6.11.2 with Qt SVG, and `LAPIS_GHOSTTY_PREFIX`
+set to the Ghostty VT prefix.
 
 ```sh
-cmake --build build/desktop --target lapis_ultratab
-open "build/desktop/apps/ultratab/Ultra Tab.app"
+git clone --recurse-submodules https://github.com/RESMP-DEV/ultratab
+cd ultratab
+cmake --preset dev
+cmake --build build/dev
+ctest --preset dev
+open "build/dev/mac/Ultra Tab.app"
 ```
+
+To move to a newer lapis, check out that commit in `lapis/` and commit the
+submodule change.
 
 A signed copy, built like the downloadable lapis (its Qt from pinned source plus
 Qt SVG, the Developer ID identity, the hardened runtime), with the icon rendered
-from `apps/ultratab/icon/icon.svg`:
+from `mac/icon/icon.svg`:
 
 ```sh
-uv run --no-project python scripts/package_macos.py qt   # once
+uv run --no-project python lapis/scripts/package_macos.py qt   # once
 uv run --no-project python scripts/package_ultratab.py app
 ```
 
-It is left in `build/release/ultratab/stage/Ultra Tab.app`; move it to
+It is left in `lapis/build/release/ultratab/stage/Ultra Tab.app`; move it to
 Applications yourself. It is not notarized yet.
 
 The lapis window must come from a build that publishes `agent_state.json`
@@ -316,7 +328,7 @@ What is shown, and the limits applied on reading:
 
 ## On the iPhone
 
-Ultra Tab for iPhone (`apps/ios/UltraTab`) is a separate app with the same
+Ultra Tab for iPhone (`ios/UltraTab`) is a separate app with the same
 icon. It deals the same deck, in the same order, one card at a time: the
 agent's name, the headline, up to three blocks (paragraph, list, table,
 diagram, link) and the proposed reply, in a gold-edged box. A card with no
@@ -324,7 +336,7 @@ proposal shows a quiet hint to add a note below. The category chips
 are the top of the screen; a dot marks one where something waits. Settings
 (the gateway address) open from the gear on the empty deck or from a
 connection notice. It
-reaches the Mac through the [phone gateway](phone.md), so it needs the same
+reaches the Mac through the [phone gateway](https://github.com/RESMP-DEV/lapis/blob/main/docs/phone.md), so it needs the same
 Tailscale or ZeroTier setup as the lapis phone app and nothing else.
 
 Every card takes three answers, with no buttons for the first two:
@@ -366,7 +378,7 @@ Install it on the phone (unlocked, on the same Wi-Fi as the Mac or on a cable)
 with:
 
 ```sh
-uv run --no-project python scripts/install_ios_app.py --app ultratab
+uv run --no-project python scripts/install_ios_app.py
 ```
 
 `uv run --no-project python scripts/check_ultratab_ios.py` runs its unit and UI
